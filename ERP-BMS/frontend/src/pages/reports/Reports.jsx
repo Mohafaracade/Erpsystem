@@ -27,6 +27,7 @@ import {
   ResponsiveContainer
 } from 'recharts'
 import { reportService } from '../../services/api/reportService'
+import { useCompanyId } from '../../hooks/useCompanyId'
 import KPICard from '../../components/reports/KPICard'
 import GlobalDateRangePicker from '../../components/common/GlobalDateRangePicker'
 import { getPresetRange } from '../../utils/datePresets'
@@ -37,61 +38,79 @@ import { Button } from '../../components/ui/button'
 import { cn } from '../../lib/utils'
 
 const Reports = () => {
+  // ✅ FIX: Get companyId for query keys
+  const companyId = useCompanyId()
+
   const [activeTab, setActiveTab] = useState('overview')
   const [dateRange, setDateRange] = useState(() => getPresetRange('thisMonth'))
 
-  // Fetch comprehensive reports data
+  // ✅ FIX: Include companyId in query key
   const { data: reportsData, isLoading, error } = useQuery(
-    ['comprehensiveReports', dateRange],
+    ['comprehensiveReports', companyId, dateRange],
     () => reportService.getComprehensiveReports(dateRange),
-    { staleTime: 2 * 60 * 1000 }
-  )
-
-  // Fetch revenue trend data
-  const { data: revenueTrendData } = useQuery(
-    ['revenueTrend', dateRange],
-    () => reportService.getRevenueTrend({ ...dateRange, groupBy: 'day' }),
-    { staleTime: 5 * 60 * 1000 }
-  )
-
-  // Fetch expense breakdown
-  const { data: expenseData } = useQuery(
-    ['expensesByCategory', dateRange],
-    () => reportService.getExpensesByCategory(dateRange),
-    { staleTime: 5 * 60 * 1000 }
-  )
-
-  // Fetch top customers
-  const { data: topCustomersData } = useQuery(
-    ['topCustomers', dateRange],
-    () => reportService.getTopCustomers({ ...dateRange, limit: 10 }),
-    { staleTime: 5 * 60 * 1000 }
-  )
-
-  // Fetch invoice status distribution
-  const { data: invoiceStatusData } = useQuery(
-    ['invoiceStatus', dateRange],
-    () => reportService.getInvoiceStatusDistribution(dateRange),
-    { staleTime: 5 * 60 * 1000 }
-  )
-
-  // Expense Analysis - Expense Trend
-  const { data: expenseTrendResponse, isLoading: etLoading } = useQuery(
-    ['expenseTrend', dateRange],
-    () => reportService.getExpenseTrend({ ...dateRange, groupBy: 'day' }),
-    {
-      staleTime: 5 * 60 * 1000,
-      enabled: activeTab === 'expenses'
+    { 
+      staleTime: 2 * 60 * 1000,
+      enabled: !!companyId // ✅ FIX: Don't fetch if no companyId
     }
   )
 
-  // Expense Analysis - Expense Metrics
+  // ✅ FIX: Include companyId in query key
+  const { data: revenueTrendData } = useQuery(
+    ['revenueTrend', companyId, dateRange],
+    () => reportService.getRevenueTrend({ ...dateRange, groupBy: 'day' }),
+    { 
+      staleTime: 5 * 60 * 1000,
+      enabled: !!companyId // ✅ FIX: Don't fetch if no companyId
+    }
+  )
+
+  // ✅ FIX: Include companyId in query key
+  const { data: expenseData } = useQuery(
+    ['expensesByCategory', companyId, dateRange],
+    () => reportService.getExpensesByCategory(dateRange),
+    { 
+      staleTime: 5 * 60 * 1000,
+      enabled: !!companyId // ✅ FIX: Don't fetch if no companyId
+    }
+  )
+
+  // ✅ FIX: Include companyId in query key
+  const { data: topCustomersData } = useQuery(
+    ['topCustomers', companyId, dateRange],
+    () => reportService.getTopCustomers({ ...dateRange, limit: 10 }),
+    { 
+      staleTime: 5 * 60 * 1000,
+      enabled: !!companyId // ✅ FIX: Don't fetch if no companyId
+    }
+  )
+
+  // ✅ FIX: Include companyId in query key
+  const { data: invoiceStatusData } = useQuery(
+    ['invoiceStatus', companyId, dateRange],
+    () => reportService.getInvoiceStatusDistribution(dateRange),
+    { 
+      staleTime: 5 * 60 * 1000,
+      enabled: !!companyId // ✅ FIX: Don't fetch if no companyId
+    }
+  )
+
+  // ✅ FIX: Include companyId in query key
+  const { data: expenseTrendResponse, isLoading: etLoading } = useQuery(
+    ['expenseTrend', companyId, dateRange],
+    () => reportService.getExpenseTrend({ ...dateRange, groupBy: 'day' }),
+    {
+      staleTime: 5 * 60 * 1000,
+      enabled: activeTab === 'expenses' && !!companyId // ✅ FIX: Don't fetch if no companyId
+    }
+  )
+
+  // ✅ FIX: Include companyId in query key
   const { data: expenseMetricsResponse, isLoading: emLoading } = useQuery(
-    ['expenseMetrics', dateRange],
+    ['expenseMetrics', companyId, dateRange],
     () => reportService.getExpenseMetrics(dateRange),
     {
       staleTime: 5 * 60 * 1000,
-      enabled: activeTab === 'expenses'
+      enabled: activeTab === 'expenses' && !!companyId // ✅ FIX: Don't fetch if no companyId
     }
   )
 

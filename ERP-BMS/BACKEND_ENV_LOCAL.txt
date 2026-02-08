@@ -1,0 +1,46 @@
+# ============================================
+# ERP Multi-Tenant SaaS - Backend .env File
+# LOCAL DATABASE CONFIGURATION
+# ============================================
+# Copy this entire content to: ERP-BMS/backend/.env
+# Make sure MongoDB is running locally on port 27017
+
+NODE_ENV=development
+PORT=5000
+
+# Local MongoDB Database
+MONGO_URI=mongodb://localhost:27017/erp_system
+MONGODB_URI=mongodb://localhost:27017/erp_system
+
+# JWT Authentication
+# Generate secret with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+JWT_SECRET=your_super_secret_jwt_key_change_this_in_production
+JWT_EXPIRE=7d
+
+# Password Reset
+RESET_TOKEN_EXPIRE=30
+
+# Multi-Tenancy Migration
+DEFAULT_COMPANY_NAME=Default Company
+DEFAULT_COMPANY_EMAIL=admin@defaultcompany.com
+SUPER_ADMIN_EMAIL=superadmin@system.com
+SUPER_ADMIN_PASSWORD=SuperAdmin123!
+
+# CORS Configuration (Frontend URL)
+CORS_ORIGIN=http://localhost:5173
+FRONTEND_URL=http://localhost:5173
+
+# File Upload
+MAX_FILE_SIZE=5
+UPLOAD_PATH=./uploads
+
+# Email (Optional - leave as is if not using)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-email@gmail.com
+SMTP_PASS=your-app-password
+
+# MongoDB Transactions
+MONGO_DISABLE_TRANSACTIONS=false
+

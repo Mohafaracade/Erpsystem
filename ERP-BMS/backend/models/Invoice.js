@@ -46,8 +46,8 @@ const invoiceSchema = new mongoose.Schema(
     invoiceNumber: {
       type: String,
       required: true,
-      unique: true,
       uppercase: true
+      // Uniqueness enforced via compound index with company
     },
     invoiceDate: {
       type: Date,
@@ -104,6 +104,12 @@ const invoiceSchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
+    company: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Company',
+      required: true,
+      index: true
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -129,7 +135,8 @@ const invoiceSchema = new mongoose.Schema(
         method: { type: String, enum: ['cash', 'credit_card', 'bank_transfer', 'cheque', 'online', 'other'], default: 'cash' },
         reference: String,
         note: String,
-        receipt: { type: mongoose.Schema.Types.ObjectId, ref: 'SalesReceipt' }
+        receipt: { type: mongoose.Schema.Types.ObjectId, ref: 'SalesReceipt' },
+        idempotencyKey: { type: String, index: true } // ✅ CRITICAL FIX: Prevent duplicate payments
       }
     ]
   },
@@ -205,7 +212,9 @@ invoiceSchema.pre('save', function (next) {
 // Indexes (NO DUPLICATES)
 invoiceSchema.index({ customer: 1 });
 invoiceSchema.index({ status: 1 });
-invoiceSchema.index({ invoiceDate: -1 });
+invoiceSchema.index({ company: 1, invoiceDate: -1 });
+invoiceSchema.index({ company: 1, status: 1 });
+invoiceSchema.index({ company: 1, invoiceNumber: 1 }, { unique: true });
 invoiceSchema.index({ createdBy: 1 });
 
 module.exports = mongoose.model('Invoice', invoiceSchema);

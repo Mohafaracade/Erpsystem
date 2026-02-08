@@ -6,13 +6,19 @@ const activityLogSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  company: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Company',
+    required: false, // Optional for super_admin who don't have a company
+    index: true
+  },
   userName: {
     type: String,
     required: true
   },
   userRole: {
     type: String,
-    enum: ['admin', 'accountant', 'staff'],
+    enum: ['super_admin', 'company_admin', 'admin', 'accountant', 'staff'],
     required: true
   },
   action: {
@@ -21,7 +27,8 @@ const activityLogSchema = new mongoose.Schema({
     enum: [
       'login', 'logout', 'create', 'update', 'delete', 'view',
       'download', 'export', 'import', 'approve', 'reject',
-      'password_change', 'password_reset'
+      'password_change', 'password_reset',
+      'payment_recorded', 'payment_received', 'payment_refunded'
     ]
   },
   entityType: {
@@ -58,6 +65,7 @@ const activityLogSchema = new mongoose.Schema({
 
 // Indexes for efficient querying
 activityLogSchema.index({ user: 1, timestamp: -1 });
+activityLogSchema.index({ company: 1, timestamp: -1 });
 activityLogSchema.index({ entityType: 1, entityId: 1 });
 activityLogSchema.index({ action: 1 });
 activityLogSchema.index({ userRole: 1 });

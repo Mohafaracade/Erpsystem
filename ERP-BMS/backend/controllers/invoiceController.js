@@ -7,7 +7,8 @@ const PDFGenerator = require('../utils/pdfGenerator');
 const path = require('path');
 const fs = require('fs');
 const { createNotification } = require('./notificationController');
-const mongoose = require('mongoose'); // ✅ KU DAR TAN
+const mongoose = require('mongoose');
+const { addCompanyFilter, validateCompanyOwnership } = require('../middleware/companyScope');
 
 
 // @desc    Get all invoices
@@ -76,8 +77,11 @@ exports.getAllInvoices = async (req, res) => {
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
+    // Add company filter
+    const companyFilteredQuery = addCompanyFilter(query, req);
+
     // Execute query with pagination
-    const invoices = await Invoice.find(query)
+    const invoices = await Invoice.find(companyFilteredQuery)
       .sort(sort)
       .skip(skip)
       .limit(limitNum)
@@ -85,7 +89,7 @@ exports.getAllInvoices = async (req, res) => {
       .populate('createdBy', 'name');
 
     // Get total count
-    const total = await Invoice.countDocuments(query);
+    const total = await Invoice.countDocuments(companyFilteredQuery);
 
     // Calculate pagination info
     const pagination = {
@@ -114,11 +118,22 @@ exports.getUnpaidInvoicesByCustomer = async (req, res) => {
       return errorResponse(res, 'customerId is required', 400);
     }
 
+    // Validate customer belongs to company
+    const customer = await Customer.findOne({
+      _id: customerId,
+      ...addCompanyFilter({}, req)
+    });
+    
+    if (!customer) {
+      return errorResponse(res, 'Customer not found or access denied', 404);
+    }
+
     const invoices = await Invoice.find({
       customer: customerId,
       status: { $nin: ['paid', 'cancelled'] },
       balanceDue: { $gt: 0 },
-      receipt: null
+      receipt: null,
+      ...addCompanyFilter({}, req)
     })
       .sort('-invoiceDate')
       .populate('customer', 'fullName phone customerType');
@@ -134,7 +149,16 @@ exports.getUnpaidInvoicesByCustomer = async (req, res) => {
 // @access  Private
 exports.getInvoice = async (req, res) => {
   try {
-    const invoice = await Invoice.findById(req.params.id)
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(Invoice, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Invoice not found', 404);
+    }
+
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    })
       .populate('customer', 'fullName phone customerType')
       .populate('createdBy', 'name')
       .populate('items.item', 'name description type sellingPrice');
@@ -172,7 +196,7 @@ exports.checkDuplicateInvoice = async (req, res) => {
     const dueDateStart = new Date(dueDateObj.setHours(0, 0, 0, 0));
     const dueDateEnd = new Date(dueDateObj.setHours(23, 59, 59, 999));
 
-    // Query for potential duplicates
+    // Query for potential duplicates (within same company)
     const duplicates = await Invoice.find({
       customer: customer,
       invoiceDate: {
@@ -184,7 +208,8 @@ exports.checkDuplicateInvoice = async (req, res) => {
         $lte: dueDateEnd
       },
       total: parseFloat(total),
-      status: { $ne: 'cancelled' } // Exclude cancelled invoices
+      status: { $ne: 'cancelled' }, // Exclude cancelled invoices
+      ...addCompanyFilter({}, req)
     })
       .populate('customer', 'fullName phone')
       .select('invoiceNumber invoiceDate dueDate total status customerDetails')
@@ -229,10 +254,13 @@ exports.createInvoice = async (req, res) => {
       status = 'draft'
     } = req.body;
 
-    // Validate customer exists
-    const customerDoc = await Customer.findById(customer);
+    // Validate customer exists and belongs to company
+    const customerDoc = await Customer.findOne({
+      _id: customer,
+      ...addCompanyFilter({}, req)
+    });
     if (!customerDoc) {
-      return errorResponse(res, 'Customer not found', 404);
+      return errorResponse(res, 'Customer not found or access denied', 404);
     }
 
     // Validate items batch-wise to prevent N+1 queries
@@ -241,7 +269,11 @@ exports.createInvoice = async (req, res) => {
       return errorResponse(res, 'At least one item is required', 400);
     }
 
-    const itemDocs = await Item.find({ _id: { $in: itemIds } });
+    // ✅ FIX: Add company filter to prevent cross-company item access
+    const itemDocs = await Item.find({ 
+      _id: { $in: itemIds },
+      ...addCompanyFilter({}, req)
+    });
     const itemMap = new Map(itemDocs.map(i => [i._id.toString(), i]));
 
     const processedItems = [];
@@ -265,6 +297,17 @@ exports.createInvoice = async (req, res) => {
 
       if (quantity <= 0.01) {
         return errorResponse(res, 'Item quantity must be greater than 0', 400);
+      }
+
+      // ✅ CRITICAL FIX: Stock validation for Goods items
+      if (itemDoc.type === 'Goods' && itemDoc.trackInventory !== false) {
+        const currentStock = Number(itemDoc.stockQuantity) || 0;
+        if (currentStock < quantity) {
+          return errorResponse(res, 
+            `Insufficient stock for "${itemDoc.name}". Available: ${currentStock}, Requested: ${quantity}`, 
+            400
+          );
+        }
       }
 
       if (rate < 0) {
@@ -296,10 +339,17 @@ exports.createInvoice = async (req, res) => {
     const validShipping = Math.max(0, Number(shippingCharges) || 0);
     const total = subTotal + taxTotal + validShipping - validDiscount;
 
-    // Generate atomic invoice number (Backend Source of Truth)
-    const invoiceNumber = await generateInvoiceNumber();
+    // ✅ FIX #5: Get company ID BEFORE using it
+    const companyId = req.user.company?._id || req.user.company;
+    if (!companyId && req.user.role !== 'super_admin') {
+      return errorResponse(res, 'Company association required', 400);
+    }
 
-    // Create invoice
+    // Generate atomic invoice number (Backend Source of Truth)
+    // Use company-specific numbering
+    const invoiceNumber = await generateInvoiceNumber(companyId);
+
+    // Create invoice first (if this fails, no stock is updated)
     const invoice = await Invoice.create({
       customer,
       customerDetails: {
@@ -320,8 +370,35 @@ exports.createInvoice = async (req, res) => {
       balanceDue: total,
       status, // Will be validated by pre-save hook
       notes,
+      company: companyId,
       createdBy: req.user.id
     });
+
+    // ✅ CRITICAL FIX: Update stock quantities atomically AFTER invoice creation
+    // Only update stock for Goods items with inventory tracking
+    // Use atomic findOneAndUpdate with condition to prevent overselling
+    for (const item of processedItems) {
+      const itemDoc = itemMap.get(item.item.toString());
+      if (itemDoc && itemDoc.type === 'Goods' && itemDoc.trackInventory !== false) {
+        const result = await Item.findOneAndUpdate(
+          { 
+            _id: itemDoc._id,
+            stockQuantity: { $gte: item.quantity } // ✅ Atomic check: only update if stock is sufficient
+          },
+          { $inc: { stockQuantity: -item.quantity } },
+          { new: true }
+        );
+        
+        // If stock update failed (insufficient stock), rollback invoice
+        if (!result) {
+          await invoice.deleteOne();
+          return errorResponse(res, 
+            `Insufficient stock for "${itemDoc.name}". Stock was updated by another transaction.`, 
+            400
+          );
+        }
+      }
+    }
 
     // Create notification
     await createNotification({
@@ -344,7 +421,16 @@ exports.createInvoice = async (req, res) => {
 // @access  Private
 exports.updateInvoice = async (req, res) => {
   try {
-    const invoice = await Invoice.findById(req.params.id);
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(Invoice, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Invoice not found', 404);
+    }
+
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    });
 
     if (!invoice) {
       return errorResponse(res, 'Invoice not found', 404);
@@ -367,11 +453,14 @@ exports.updateInvoice = async (req, res) => {
       status
     } = req.body;
 
-    // Validate customer if provided
+    // Validate customer if provided (must belong to same company)
     if (customer) {
-      const customerDoc = await Customer.findById(customer);
+      const customerDoc = await Customer.findOne({
+        _id: customer,
+        ...addCompanyFilter({}, req)
+      });
       if (!customerDoc) {
-        return errorResponse(res, 'Customer not found', 404);
+        return errorResponse(res, 'Customer not found or access denied', 404);
       }
       invoice.customer = customer;
       invoice.customerDetails = {
@@ -388,7 +477,11 @@ exports.updateInvoice = async (req, res) => {
 
       // Batch fetch items
       const itemIds = items.map(i => i.item);
-      const itemDocs = await Item.find({ _id: { $in: itemIds } });
+      // ✅ FIX: Add company filter to prevent cross-company item access
+      const itemDocs = await Item.find({ 
+        _id: { $in: itemIds },
+        ...addCompanyFilter({}, req)
+      });
       const itemMap = new Map(itemDocs.map(i => [i._id.toString(), i]));
 
       const processedItems = [];
@@ -486,7 +579,16 @@ exports.updateInvoice = async (req, res) => {
 // @access  Private
 exports.downloadInvoice = async (req, res) => {
   try {
-    const invoice = await Invoice.findById(req.params.id)
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(Invoice, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Invoice not found', 404);
+    }
+
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    })
       .populate('customer')
       .populate('items.item');
 
@@ -521,7 +623,16 @@ exports.downloadInvoice = async (req, res) => {
 // @access  Private (Admin only)
 exports.deleteInvoice = async (req, res) => {
   try {
-    const invoice = await Invoice.findById(req.params.id);
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(Invoice, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Invoice not found', 404);
+    }
+
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    });
 
     if (!invoice) {
       return errorResponse(res, 'Invoice not found', 404);
@@ -545,7 +656,16 @@ exports.deleteInvoice = async (req, res) => {
 // @access  Private
 exports.markAsSent = async (req, res) => {
   try {
-    const invoice = await Invoice.findById(req.params.id);
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(Invoice, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Invoice not found', 404);
+    }
+
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    });
 
     if (!invoice) {
       return errorResponse(res, 'Invoice not found', 404);
@@ -565,98 +685,195 @@ exports.markAsSent = async (req, res) => {
   }
 };
 
-// @desc    Record payment
+// @desc    Record payment (Non-Transactional - MongoDB Standalone)
 // @route   POST /api/invoices/:id/payments
 // @access  Private
-// @desc    Record payment
-// @route   POST /api/invoices/:id/payments
-// @access  Private
+// 
+// REFACTORED: Works without MongoDB transactions for standalone deployments
+// Uses sequential operations with validation to ensure data consistency
 exports.recordPayment = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  // Extract companyId from user (never trust req.body.company)
+  const companyId = req.user.company?._id || req.user.company;
+  const userId = req.user._id;
+  const invoiceId = req.params.id;
 
   try {
-    const { amount, paymentMethod, paymentDate, notes } = req.body;
-    const invoice = await Invoice.findById(req.params.id).session(session);
+    // ============================================
+    // STEP 1: Fetch invoice with company filter
+    // ============================================
+    // Multi-tenancy: Always filter by company to prevent cross-company access
+    const invoice = await Invoice.findOne({
+      _id: invoiceId,
+      ...addCompanyFilter({}, req)
+    });
 
     if (!invoice) {
-      await session.abortTransaction();
-      session.endSession();
       return errorResponse(res, 'Invoice not found', 404);
     }
 
-    // --- Strict Accounting Guards ---
+    // ============================================
+    // STEP 2: Validate invoice status
+    // ============================================
+    // Strict accounting: Cannot pay draft or cancelled invoices
     if (['draft', 'cancelled'].includes(invoice.status)) {
-      await session.abortTransaction();
-      session.endSession();
       return errorResponse(res, `Cannot record payment for ${invoice.status} invoices. Please send the invoice first.`, 400);
     }
 
-    if (invoice.status === 'paid' && invoice.balanceDue <= 0.01) {
-      await session.abortTransaction();
-      session.endSession();
+    // Check if already fully paid
+    const { FINANCIAL_TOLERANCE } = require('../utils/financialConstants');
+    if (invoice.status === 'paid' && invoice.balanceDue <= FINANCIAL_TOLERANCE) {
       return errorResponse(res, 'This invoice is already fully paid.', 400);
     }
 
+    // ============================================
+    // STEP 3: Payment validation & idempotency
+    // ============================================
+    const { amount, paymentMethod, paymentDate, notes, idempotencyKey } = req.body;
+    
+    // ✅ CRITICAL FIX: Idempotency check - prevent duplicate payments
+    if (idempotencyKey) {
+      const existingPayment = invoice.payments.find(p => 
+        p.idempotencyKey === idempotencyKey
+      );
+      if (existingPayment) {
+        return successResponse(res, 'Payment already recorded (idempotent)', invoice);
+      }
+    }
+    
+    // ✅ CRITICAL FIX: Duplicate payment detection (heuristic check)
+    // Check for similar payment within last 5 minutes (same amount, method, date)
+    const paymentDateObj = paymentDate ? new Date(paymentDate) : new Date();
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    
+    const recentDuplicate = invoice.payments.find(p => {
+      const pDate = new Date(p.date);
+      return Math.abs(p.amount - Number(amount)) < 0.01 && // Same amount (within 1 cent)
+             p.method === (paymentMethod || 'cash') &&
+             pDate >= fiveMinutesAgo && // Within last 5 minutes
+             Math.abs(pDate - paymentDateObj) < 60000; // Within 1 minute of each other
+    });
+    
+    if (recentDuplicate) {
+      return errorResponse(res, 
+        'A similar payment was recently recorded. If this is intentional, please wait a moment and try again with a different amount or method.', 
+        400
+      );
+    }
+    
+    // Validate payment amount is a number
     const paymentAmount = Number(amount);
-    if (isNaN(paymentAmount) || paymentAmount <= 0) {
-      await session.abortTransaction();
-      session.endSession();
-      return errorResponse(res, 'Payment amount must be a positive number.', 400);
+    if (isNaN(paymentAmount)) {
+      return errorResponse(res, 'Payment amount must be a valid number.', 400);
+    }
+    
+    // Reject zero or negative payments
+    if (paymentAmount <= 0) {
+      return errorResponse(res, 'Payment amount must be greater than zero.', 400);
     }
 
-    // Force recalculate balance to be safe
+    // Recalculate balance to prevent overpayment
     const total = Number(invoice.total);
     const paid = Number(invoice.amountPaid);
     const currentBalance = total - paid;
 
-    // Strict tolerance check (0.001) for overpayment
-    if (paymentAmount > currentBalance + 0.001) {
-      await session.abortTransaction();
-      session.endSession();
+    // Prevent overpayment (with financial tolerance for floating-point errors)
+    if (paymentAmount > currentBalance + FINANCIAL_TOLERANCE) {
       return errorResponse(res, `Payment amount ($${paymentAmount.toFixed(2)}) exceeds the remaining balance ($${currentBalance.toFixed(2)}).`, 400);
     }
 
-    // Update invoice state
+    // ============================================
+    // STEP 4: Update invoice (amountPaid and status)
+    // ============================================
+    // Update amount paid
     invoice.amountPaid = paid + paymentAmount;
 
-    // Add payment record
+    // ✅ CRITICAL FIX: Add payment record with idempotency key
     invoice.payments.push({
       amount: paymentAmount,
       method: paymentMethod || 'cash',
       date: paymentDate || new Date(),
-      note: notes
+      note: notes,
+      idempotencyKey: idempotencyKey || `payment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` // Generate if not provided
     });
 
-    // Save invoice (triggers pre-save hook for status update)
-    await invoice.save({ session });
+    // Save invoice (pre-save hook will update balanceDue and status automatically)
+    await invoice.save();
 
-    // ✅ REVENUE INTEGRITY FIX:
-    // Do NOT create SalesReceipt here.
-    // Invoice payments contribute to revenue ONLY via Invoice.amountPaid.
-    // SalesReceipts are for POS-only transactions (source='pos', invoice=null).
-    // This prevents double-counting in revenue reports.
+    // If invoice save fails, error will be caught and payment won't be recorded
+    // This ensures consistency: invoice state and payment record are updated together
 
-    await session.commitTransaction();
-    session.endSession();
-
-    // Create notification (outside transaction)
-    await createNotification({
-      user: req.user.id,
+    // ============================================
+    // STEP 5: Create notification (non-blocking)
+    // ============================================
+    // Best-effort notification creation
+    // If this fails, payment is still recorded (notification is not critical)
+    createNotification({
+      user: userId,
       type: 'payment',
       title: 'Payment Recorded',
       message: `Payment of $${paymentAmount.toFixed(2)} recorded for Invoice #${invoice.invoiceNumber}.`,
       link: `/invoices/${invoice._id}`
+    }).catch(err => {
+      console.warn('[recordPayment] Failed to create notification:', err.message);
+      // Don't throw - notification failure shouldn't break payment
     });
 
-    successResponse(res, 'Payment recorded successfully', invoice);
+    // ============================================
+    // STEP 6: Audit log (best-effort, non-blocking)
+    // ============================================
+    // Activity logging is handled by middleware, but we can add payment-specific log
+    // This is non-blocking - payment succeeds even if logging fails
+    const ActivityLog = require('../models/ActivityLog');
+    ActivityLog.create({
+      user: userId,
+      userName: req.user.name,
+      userRole: req.user.role,
+      company: companyId,
+      action: 'payment_recorded',
+      entityType: 'invoice',
+      entityId: invoiceId,
+      details: {
+        invoiceNumber: invoice.invoiceNumber,
+        paymentAmount: paymentAmount,
+        paymentMethod: paymentMethod || 'cash',
+        previousBalance: currentBalance,
+        newBalance: currentBalance - paymentAmount
+      },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    }).catch(err => {
+      console.warn('[recordPayment] Failed to create activity log:', err.message);
+      // Don't throw - audit log failure shouldn't break payment
+    });
+
+    // ============================================
+    // SUCCESS: Return updated invoice
+    // ============================================
+    successResponse(res, `Payment of $${paymentAmount.toFixed(2)} recorded for Invoice #${invoice.invoiceNumber}.`, invoice);
+
   } catch (error) {
-    if (session.inTransaction()) {
-      await session.abortTransaction();
+    // ✅ CRITICAL FIX: Always log full error server-side (never expose stack in response)
+    console.error('[recordPayment] Error:', {
+      invoiceId,
+      userId,
+      companyId,
+      endpoint: req.path,
+      method: req.method,
+      error: error.message,
+      stack: error.stack // ✅ Always log stack server-side only
+    });
+
+    // Return appropriate error response (never expose stack)
+    if (error.name === 'ValidationError') {
+      return errorResponse(res, error.message, 400);
     }
-    session.endSession();
-    console.error('[recordPayment] Error:', error);
-    errorResponse(res, error.message, 500);
+    
+    if (error.name === 'CastError') {
+      return errorResponse(res, 'Invalid invoice ID', 400);
+    }
+
+    // Generic server error (safe message, no stack trace)
+    errorResponse(res, 'Failed to record payment. Please try again.', 500);
   }
 };
 
@@ -680,6 +897,11 @@ exports.getInvoiceStats = async (req, res) => {
 
     // Exclude cancelled invoices from stats
     matchStage.status = { $ne: 'cancelled' };
+    
+    // Add company filter (unless super admin)
+    if (req.user.role !== 'super_admin' && req.user.company) {
+      matchStage.company = req.user.company._id || req.user.company;
+    }
 
     // Determine trend grouping format
     let trendGroupFormat = "%Y-%m";
@@ -775,7 +997,7 @@ exports.exportInvoices = async (req, res) => {
   try {
     const { startDate, endDate, status } = req.query;
 
-    let query = {};
+    let query = addCompanyFilter({}, req);
     if (startDate || endDate) {
       query.invoiceDate = {};
       if (startDate) query.invoiceDate.$gte = new Date(startDate);

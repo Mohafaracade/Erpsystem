@@ -55,8 +55,8 @@ const salesReceiptSchema = new mongoose.Schema({
   salesReceiptNumber: {
     type: String,
     required: [true, 'Sales receipt number is required'],
-    unique: true,
     uppercase: true
+    // Uniqueness enforced via compound index with company
   },
   receiptDate: {
     type: Date,
@@ -112,6 +112,12 @@ const salesReceiptSchema = new mongoose.Schema({
     enum: ['pending', 'completed', 'cancelled', 'refunded'],
     default: 'completed'
   },
+  company: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Company',
+    required: true,
+    index: true
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -138,10 +144,10 @@ const salesReceiptSchema = new mongoose.Schema({
 });
 
 // Indexes
-salesReceiptSchema.index({ salesReceiptNumber: 1 });
+salesReceiptSchema.index({ company: 1, salesReceiptNumber: 1 }, { unique: true });
 salesReceiptSchema.index({ customer: 1 });
-salesReceiptSchema.index({ receiptDate: -1 });
-salesReceiptSchema.index({ status: 1 });
+salesReceiptSchema.index({ company: 1, receiptDate: -1 });
+salesReceiptSchema.index({ company: 1, status: 1 });
 salesReceiptSchema.index({ paymentMethod: 1 });
 salesReceiptSchema.index({ createdBy: 1 });
 

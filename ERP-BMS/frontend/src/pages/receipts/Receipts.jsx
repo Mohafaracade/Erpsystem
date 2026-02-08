@@ -18,6 +18,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import ConfirmDialog from '../../components/common/ConfirmDialog'
 import ReceiptList from '../../components/receipts/ReceiptList'
 import { useDebounce } from '../../hooks/useDebounce'
+import { useCompanyId } from '../../hooks/useCompanyId'
+import { validateCompanyData } from '../../utils/dataValidation'
 import { receiptService } from '../../services/api/receiptService'
 import GlobalDateRangePicker from '../../components/common/GlobalDateRangePicker'
 import { getPresetRange } from '../../utils/datePresets'
@@ -26,6 +28,9 @@ import { Input } from '../../components/ui/input'
 import { Card, CardContent } from '../../components/ui/card'
 
 const Receipts = () => {
+  // ✅ FIX: Get companyId for query keys
+  const companyId = useCompanyId()
+
   const [searchTerm, setSearchTerm] = useState('')
   const [page, setPage] = useState(1)
   const [dateRange, setDateRange] = useState(() => getPresetRange('thisMonth'))
@@ -39,8 +44,9 @@ const Receipts = () => {
   const queryClient = useQueryClient()
   const limit = 5
 
+  // ✅ FIX: Include companyId in query key
   const { data, isLoading, isError } = useQuery(
-    ['receipts', debouncedSearch, page, dateRange.startDate, dateRange.endDate],
+    ['receipts', companyId, debouncedSearch, page, dateRange.startDate, dateRange.endDate],
     () =>
       receiptService.getAll({
         search: debouncedSearch || undefined,
@@ -49,10 +55,21 @@ const Receipts = () => {
         page,
         limit,
       }),
-    { keepPreviousData: true }
+    { 
+      keepPreviousData: true,
+      enabled: !!companyId // ✅ FIX: Don't fetch if no companyId
+    }
   )
 
-  const receipts = data?.data || []
+  const rawReceipts = data?.data || []
+  
+  // ✅ FIX: Validate company data before rendering
+  const { filteredRecords: receipts, invalidCount } = validateCompanyData(rawReceipts, companyId, 'company')
+  if (invalidCount > 0) {
+    console.error(`[Receipts] ${invalidCount} receipts with wrong companyId detected and filtered out`)
+    queryClient.invalidateQueries(['receipts', companyId])
+  }
+  
   const pagination = data?.pagination || { page: 1, pages: 1, total: 0 }
 
   useEffect(() => {
@@ -62,7 +79,7 @@ const Receipts = () => {
   const deleteReceipt = useMutation(receiptService.delete, {
     onSuccess: () => {
       toast.success('Receipt deleted')
-      queryClient.invalidateQueries({ queryKey: ['receipts'] })
+      queryClient.invalidateQueries({ queryKey: ['receipts', companyId] })
     },
     onError: (error) => {
       toast.error(error?.response?.data?.message || 'Failed to delete receipt')

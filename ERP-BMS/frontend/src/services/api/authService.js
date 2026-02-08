@@ -7,6 +7,7 @@ export const authService = {
   },
 
   register: async (userData) => {
+    // Registration is disabled - this will return 403
     const response = await apiClient.post('/auth/register', userData)
     return response.data
   },

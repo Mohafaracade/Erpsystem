@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/userController');
 const { protect, authorize } = require('../middleware/auth');
+const { userCreationLimiter } = require('../middleware/rateLimiter');
 
 /*
 |--------------------------------------------------------------------------
@@ -14,13 +15,15 @@ const { protect, authorize } = require('../middleware/auth');
 */
 
 // Apply auth middleware to all routes
-router.use(protect, authorize('admin'));
+// ✅ SECURITY FIX: Only super_admin and company_admin can manage users
+// admin role is NOT allowed to manage users (strict role separation)
+router.use(protect, authorize('super_admin', 'company_admin'));
 
 // Get all users / Create new user
 router
   .route('/')
   .get(userController.getAllUsers)
-  .post(userController.createUser);
+  .post(userCreationLimiter, userController.createUser); // ✅ FIX #14: Rate limit user creation
 
 // Get / Update / Delete single user
 router

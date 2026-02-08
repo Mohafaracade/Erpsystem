@@ -22,11 +22,16 @@ import InvoiceList from '../../components/invoices/InvoiceList'
 import RecordPaymentModal from '../../components/invoices/RecordPaymentModal'
 import InvoiceAnalyticsHeader from '../../components/invoices/InvoiceAnalyticsHeader'
 import { useDebounce } from '../../hooks/useDebounce'
+import { useCompanyId } from '../../hooks/useCompanyId'
+import { validateCompanyData } from '../../utils/dataValidation'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Card, CardContent } from '../../components/ui/card'
 
 const Invoices = () => {
+  // ✅ FIX: Get companyId for query keys
+  const companyId = useCompanyId()
+
   // Filters and UI State
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -43,13 +48,13 @@ const Invoices = () => {
   const queryClient = useQueryClient()
   const limit = 5
 
-  // Fetch Invoices
+  // ✅ FIX: Include companyId in query key
   const {
     data: invoicesData,
     isLoading: isInvoicesLoading,
     isError,
   } = useQuery(
-    ['invoices', debouncedSearch, statusFilter, page, dateRange.startDate, dateRange.endDate],
+    ['invoices', companyId, debouncedSearch, statusFilter, page, dateRange.startDate, dateRange.endDate],
     () =>
       invoiceService.getAll({
         search: debouncedSearch || undefined,
@@ -59,22 +64,37 @@ const Invoices = () => {
         page,
         limit,
       }),
-    { keepPreviousData: true }
+    { 
+      keepPreviousData: true,
+      enabled: !!companyId // ✅ FIX: Don't fetch if no companyId
+    }
   )
 
-  // Fetch Stats for Header
+  // ✅ FIX: Include companyId in query key
   const { data: statsData, isLoading: isStatsLoading } = useQuery(
-    ['invoice-stats', dateRange.startDate, dateRange.endDate],
+    ['invoice-stats', companyId, dateRange.startDate, dateRange.endDate],
     () => invoiceService.getStats({
       startDate: dateRange.startDate,
       endDate: dateRange.endDate,
       groupBy: 'day'
     }),
-    { staleTime: 5 * 60 * 1000 }
+    { 
+      staleTime: 5 * 60 * 1000,
+      enabled: !!companyId // ✅ FIX: Don't fetch if no companyId
+    }
   )
 
   const stats = statsData?.data || {}
-  const invoices = invoicesData?.data || []
+  const rawInvoices = invoicesData?.data || []
+  
+  // ✅ FIX: Validate company data before rendering
+  const { filteredRecords: invoices, invalidCount } = validateCompanyData(rawInvoices, companyId, 'company')
+  if (invalidCount > 0) {
+    console.error(`[Invoices] ${invalidCount} invoices with wrong companyId detected and filtered out`)
+    // Invalidate query to force refetch
+    queryClient.invalidateQueries(['invoices', companyId])
+  }
+  
   const pagination = invoicesData?.pagination || { page: 1, pages: 1, total: 0 }
 
   const handleDateSelect = (range) => {
@@ -86,8 +106,8 @@ const Invoices = () => {
   const deleteMutation = useMutation(invoiceService.delete, {
     onSuccess: () => {
       toast.success('Invoice deleted')
-      queryClient.invalidateQueries('invoices')
-      queryClient.invalidateQueries('invoice-stats')
+      queryClient.invalidateQueries(['invoices', companyId])
+      queryClient.invalidateQueries(['invoice-stats', companyId])
     },
     onError: (error) => {
       toast.error(error?.response?.data?.message || 'Failed to delete invoice')
@@ -100,9 +120,9 @@ const Invoices = () => {
       onSuccess: () => {
         toast.success('Payment recorded successfully')
         setIsPaymentModalOpen(false)
-        queryClient.invalidateQueries('invoices')
-        queryClient.invalidateQueries('invoice-stats')
-        queryClient.invalidateQueries('reports-comprehensive')
+        queryClient.invalidateQueries(['invoices', companyId])
+        queryClient.invalidateQueries(['invoice-stats', companyId])
+        queryClient.invalidateQueries(['comprehensiveReports', companyId])
       },
       onError: (error) => {
         toast.error(error?.response?.data?.message || 'Failed to record payment')
@@ -114,11 +134,11 @@ const Invoices = () => {
     (id) => invoiceService.markAsSent(id),
     {
       onMutate: async (id) => {
-        await queryClient.cancelQueries('invoices')
-        const previousInvoices = queryClient.getQueryData('invoices')
+        await queryClient.cancelQueries(['invoices', companyId])
+        const previousInvoices = queryClient.getQueryData(['invoices', companyId])
 
         if (previousInvoices?.data) {
-          queryClient.setQueryData('invoices', {
+          queryClient.setQueryData(['invoices', companyId], {
             ...previousInvoices,
             data: previousInvoices.data.map(inv =>
               inv._id === id ? { ...inv, status: 'sent' } : inv
@@ -130,8 +150,8 @@ const Invoices = () => {
       },
       onSuccess: () => {
         toast.success('Invoice sent successfully')
-        queryClient.invalidateQueries('invoices')
-        queryClient.invalidateQueries('invoice-stats')
+        queryClient.invalidateQueries(['invoices', companyId])
+        queryClient.invalidateQueries(['invoice-stats', companyId])
       },
       onError: (error, id, context) => {
         toast.error(error?.response?.data?.message || 'Failed to send invoice')

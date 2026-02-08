@@ -1,5 +1,6 @@
 const Customer = require('../models/Customer');
 const { successResponse, errorResponse, paginatedResponse } = require('../utils/response');
+const { addCompanyFilter, validateCompanyOwnership } = require('../middleware/companyScope');
 
 // @desc    Get all customers
 // @route   GET /api/customers
@@ -36,15 +37,18 @@ exports.getAllCustomers = async (req, res) => {
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
+    // Add company filter
+    const companyFilteredQuery = addCompanyFilter(query, req);
+
     // Execute query with pagination
-    const customers = await Customer.find(query)
+    const customers = await Customer.find(companyFilteredQuery)
       .sort(sort)
       .skip(skip)
       .limit(limitNum)
       .populate('createdBy', 'name');
 
     // Get total count
-    const total = await Customer.countDocuments(query);
+    const total = await Customer.countDocuments(companyFilteredQuery);
 
     // Calculate pagination info
     const pagination = {
@@ -67,7 +71,16 @@ exports.getAllCustomers = async (req, res) => {
 // @access  Private
 exports.getCustomer = async (req, res) => {
   try {
-    const customer = await Customer.findById(req.params.id)
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(Customer, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Customer not found', 404);
+    }
+
+    const customer = await Customer.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    })
       .populate('createdBy', 'name');
 
     if (!customer) {
@@ -87,6 +100,12 @@ exports.createCustomer = async (req, res) => {
   try {
     const { customerType, fullName, phone, email, address } = req.body;
 
+    // Get company ID
+    const companyId = req.user.company?._id || req.user.company;
+    if (!companyId && req.user.role !== 'super_admin') {
+      return errorResponse(res, 'Company association required', 400);
+    }
+
     // Create customer
     const customer = await Customer.create({
       customerType,
@@ -94,6 +113,7 @@ exports.createCustomer = async (req, res) => {
       phone,
       email,
       address,
+      company: companyId,
       createdBy: req.user.id
     });
 
@@ -108,9 +128,18 @@ exports.createCustomer = async (req, res) => {
 // @access  Private
 exports.updateCustomer = async (req, res) => {
   try {
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(Customer, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Customer not found', 404);
+    }
+
     const { customerType, fullName, phone, email, address } = req.body;
 
-    const customer = await Customer.findById(req.params.id);
+    const customer = await Customer.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    });
 
     if (!customer) {
       return errorResponse(res, 'Customer not found', 404);
@@ -136,7 +165,16 @@ exports.updateCustomer = async (req, res) => {
 // @access  Private (Admin only)
 exports.deleteCustomer = async (req, res) => {
   try {
-    const customer = await Customer.findById(req.params.id);
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(Customer, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Customer not found', 404);
+    }
+
+    const customer = await Customer.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    });
 
     if (!customer) {
       return errorResponse(res, 'Customer not found', 404);
@@ -155,7 +193,11 @@ exports.deleteCustomer = async (req, res) => {
 // @access  Private
 exports.getCustomerStats = async (req, res) => {
   try {
+    // Add company match stage
+    const companyMatch = req.user.role === 'super_admin' ? {} : { company: req.user.company._id || req.user.company };
+
     const stats = await Customer.aggregate([
+      { $match: companyMatch },
       {
         $facet: {
           totalCustomers: [
@@ -196,7 +238,7 @@ exports.getCustomerStats = async (req, res) => {
 // @access  Private
 exports.exportCustomers = async (req, res) => {
   try {
-    const customers = await Customer.find()
+    const customers = await Customer.find(addCompanyFilter({}, req))
       .select('fullName customerType phone email address createdAt')
       .sort('createdAt');
 
@@ -239,7 +281,10 @@ exports.bulkUpdateStatus = async (req, res) => {
     }
 
     const result = await Customer.updateMany(
-      { _id: { $in: customerIds } },
+      { 
+        _id: { $in: customerIds },
+        ...addCompanyFilter({}, req)
+      },
       { $set: { status } }
     );
 

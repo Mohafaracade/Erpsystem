@@ -14,6 +14,7 @@ const path = require('path');
 
 // Routes
 const authRoutes = require('./routes/auth');
+const companyRoutes = require('./routes/companies');
 const customerRoutes = require('./routes/customers');
 const itemRoutes = require('./routes/items');
 const invoiceRoutes = require('./routes/invoices');
@@ -26,6 +27,7 @@ const notificationRoutes = require('./routes/notifications');
 // Middleware
 const errorHandler = require('./middleware/errorHandler');
 const { notFound } = require('./middleware/notFound');
+const { addRequestId } = require('./middleware/requestTracing'); // ✅ FIX #11: Request tracing
 
 const app = express();
 
@@ -34,13 +36,38 @@ const app = express();
 ========================= */
 app.use(helmet());
 
-app.use(
-  cors({
-    origin: process.env.CORS_ORIGIN || '*',
-    credentials: true,
-  })
-);
+// ✅ FIX #10: CORS configuration with validation
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    const allowedOrigins = process.env.CORS_ORIGIN 
+      ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+      : (process.env.NODE_ENV === 'production' ? [] : ['http://localhost:3000']);
+    
+    // ✅ FIX #10: Validate origin format
+    try {
+      const url = new URL(origin);
+      // Reject invalid or malformed origins
+      if (allowedOrigins.includes(origin) || allowedOrigins.includes(url.origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    } catch (error) {
+      // Invalid URL format
+      callback(new Error('Invalid origin format'));
+    }
+  },
+  credentials: true,
+};
+app.use(cors(corsOptions));
 
+// ✅ FIX #11: Add request ID to all requests
+app.use(addRequestId);
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -75,6 +102,7 @@ mongoose
    ROUTES
 ========================= */
 app.use('/api/auth', authRoutes);
+app.use('/api/companies', companyRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/items', itemRoutes);

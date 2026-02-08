@@ -12,7 +12,6 @@ const userSchema = new mongoose.Schema({
   email: {
     type: String,
     required: [true, 'Please provide an email'],
-    unique: true,
     lowercase: true,
     match: [
       /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
@@ -25,9 +24,18 @@ const userSchema = new mongoose.Schema({
     minlength: [6, 'Password must be at least 6 characters'],
     select: false
   },
+  company: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Company',
+    required: function() {
+      // Super admin doesn't need a company
+      return this.role !== 'super_admin';
+    },
+    index: true
+  },
   role: {
     type: String,
-    enum: ['admin', 'accountant', 'staff'],
+    enum: ['super_admin', 'company_admin', 'admin', 'accountant', 'staff'],
     default: 'staff'
   },
   isActive: {
@@ -71,11 +79,19 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
 
 // Generate JWT token
 userSchema.methods.generateAuthToken = function() {
+  // ✅ FIX: Ensure companyId is always a string ObjectId, never an object
+  let companyId = null;
+  if (this.company) {
+    // Handle both ObjectId and populated company object
+    companyId = this.company._id ? this.company._id.toString() : this.company.toString();
+  }
+  
   return jwt.sign(
     { 
-      userId: this._id,
+      userId: this._id.toString(),
       email: this.email,
-      role: this.role 
+      role: this.role,
+      companyId: companyId
     },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRE }
@@ -95,6 +111,15 @@ userSchema.methods.createPasswordResetToken = function() {
   
   return resetToken;
 };
+
+// Compound index for email uniqueness per company
+// Super admin emails are globally unique, others are unique per company
+userSchema.index({ email: 1, company: 1 }, { 
+  unique: true, 
+  partialFilterExpression: { company: { $exists: true } } 
+});
+userSchema.index({ company: 1 });
+userSchema.index({ role: 1 });
 
 const User = mongoose.model('User', userSchema);
 

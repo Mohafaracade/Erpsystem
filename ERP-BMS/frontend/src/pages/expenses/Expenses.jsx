@@ -14,6 +14,8 @@ import { toast } from 'react-hot-toast'
 import { useNavigate } from 'react-router-dom'
 import { expenseService } from '../../services/api/expenseService'
 import { useAuth } from '../../contexts/AuthContext'
+import { useCompanyId } from '../../hooks/useCompanyId'
+import { validateCompanyData } from '../../utils/dataValidation'
 import ConfirmDialog from '../../components/common/ConfirmDialog'
 import ExpenseList from '../../components/expense/ExpenseList'
 import { useDebounce } from '../../hooks/useDebounce'
@@ -24,6 +26,9 @@ import { Input } from '../../components/ui/input'
 import { Card, CardContent } from '../../components/ui/card'
 
 const Expenses = () => {
+  // ✅ FIX: Get companyId for query keys
+  const companyId = useCompanyId()
+
   const navigate = useNavigate()
   const { user } = useAuth()
   const [searchTerm, setSearchTerm] = useState('')
@@ -40,8 +45,9 @@ const Expenses = () => {
   const debouncedSearch = useDebounce(searchTerm, 400)
   const limit = 5
 
+  // ✅ FIX: Include companyId in query key
   const { data, isLoading, isError } = useQuery(
-    ['expenses', debouncedSearch, page, dateRange.startDate, dateRange.endDate],
+    ['expenses', companyId, debouncedSearch, page, dateRange.startDate, dateRange.endDate],
     () =>
       expenseService.getAll({
         search: debouncedSearch || undefined,
@@ -50,10 +56,21 @@ const Expenses = () => {
         page,
         limit,
       }),
-    { keepPreviousData: true }
+    { 
+      keepPreviousData: true,
+      enabled: !!companyId // ✅ FIX: Don't fetch if no companyId
+    }
   )
 
-  const expenses = data?.data || []
+  const rawExpenses = data?.data || []
+  
+  // ✅ FIX: Validate company data before rendering
+  const { filteredRecords: expenses, invalidCount } = validateCompanyData(rawExpenses, companyId, 'company')
+  if (invalidCount > 0) {
+    console.error(`[Expenses] ${invalidCount} expenses with wrong companyId detected and filtered out`)
+    queryClient.invalidateQueries(['expenses', companyId])
+  }
+  
   const pagination = data?.pagination || { page: 1, pages: 1, total: 0 }
 
   useEffect(() => {
@@ -84,7 +101,7 @@ const Expenses = () => {
     {
       onSuccess: (res) => {
         toast.success(`Expense ${res.data.status} successfully`)
-        queryClient.invalidateQueries({ queryKey: ['expenses'] })
+        queryClient.invalidateQueries({ queryKey: ['expenses', companyId] })
       },
       onError: (error) => {
         toast.error(error?.response?.data?.message || 'Failed to update status')

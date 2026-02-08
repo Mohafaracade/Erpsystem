@@ -5,55 +5,12 @@ const emailService = require('../config/email');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 
-// @desc    Register user
+// @desc    Register user (DISABLED - Public registration disabled for security)
 // @route   POST /api/auth/register
-// @access  Public
+// @access  Public (DISABLED)
+// NOTE: Public registration is disabled. Use admin-only user creation instead.
 exports.register = async (req, res) => {
-  try {
-    const { name, email, password, role } = req.body;
-
-    // Check if user exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return errorResponse(res, 'User already exists', 400);
-    }
-
-    // Create user
-    const user = await User.create({
-      name,
-      email,
-      password,
-      role: role || 'staff'
-    });
-
-    // Generate token
-    const token = user.generateAuthToken();
-
-    // Log activity
-    await ActivityLog.create({
-      user: user._id,
-      userName: user.name,
-      userRole: user.role,
-      action: 'create',
-      entityType: 'user',
-      entityId: user._id,
-      entityName: user.name,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
-
-    successResponse(res, 'User registered successfully', {
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role
-      },
-      token
-    }, 201);
-  } catch (error) {
-    errorResponse(res, error.message, 500);
-  }
+  return errorResponse(res, 'Public registration is disabled. Please contact your administrator to create an account.', 403);
 };
 
 // @desc    Login user
@@ -63,8 +20,9 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Check if user exists
-    const user = await User.findOne({ email }).select('+password');
+    // Check if user exists (email is unique per company, but for login we check all)
+    // For super_admin, email is globally unique
+    const user = await User.findOne({ email }).select('+password').populate('company');
     if (!user) {
       return errorResponse(res, 'Invalid credentials', 401);
     }
@@ -72,6 +30,17 @@ exports.login = async (req, res) => {
     // Check if user is active
     if (!user.isActive) {
       return errorResponse(res, 'Account is deactivated', 401);
+    }
+
+    // Validate company is active (unless super_admin)
+    if (user.role !== 'super_admin' && user.company) {
+      if (!user.company.isActive) {
+        return errorResponse(res, 'Company account is inactive', 401);
+      }
+      if (user.company.subscription && 
+          !['active', 'trial'].includes(user.company.subscription.status)) {
+        return errorResponse(res, 'Company subscription is not active', 401);
+      }
     }
 
     // Check password
@@ -92,6 +61,7 @@ exports.login = async (req, res) => {
       user: user._id,
       userName: user.name,
       userRole: user.role,
+      company: user.company?._id || user.company || null,
       action: 'login',
       entityType: 'user',
       entityId: user._id,
@@ -105,6 +75,10 @@ exports.login = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        company: user.company ? {
+          id: user.company._id,
+          name: user.company.name
+        } : null,
         lastLogin: user.lastLogin
       },
       token
@@ -124,6 +98,7 @@ exports.logout = async (req, res) => {
       user: req.user._id,
       userName: req.user.name,
       userRole: req.user.role,
+      company: req.user.company?._id || req.user.company || null, // Optional for super_admin
       action: 'logout',
       entityType: 'user',
       entityId: req.user._id,
@@ -155,11 +130,27 @@ exports.getMe = async (req, res) => {
 // @access  Public
 exports.forgotPassword = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, companyId } = req.body;
 
-    const user = await User.findOne({ email });
+    // ✅ FIX #12: Scope password reset to company
+    let query = { email: email.toLowerCase() };
+    
+    // If companyId provided, scope to that company (for regular users)
+    if (companyId) {
+      query.company = companyId;
+    } else {
+      // If no companyId, only allow super_admin password reset
+      // (super_admin doesn't have a company)
+      query.role = 'super_admin';
+      query.company = { $exists: false };
+    }
+
+    const user = await User.findOne(query);
+    
+    // ✅ FIX #12: Don't reveal if user exists or not (security best practice)
+    // Always return success message to prevent user enumeration
     if (!user) {
-      return errorResponse(res, 'User not found', 404);
+      return successResponse(res, 'If an account exists with this email, a password reset link has been sent.');
     }
 
     // Generate reset token
@@ -174,11 +165,13 @@ exports.forgotPassword = async (req, res) => {
       user.name
     );
 
+    // Don't reveal if email failed (security best practice)
+    // Log error server-side but return generic success message
     if (!emailSent) {
-      return errorResponse(res, 'Failed to send reset email', 500);
+      console.error(`Failed to send password reset email to ${user.email}`);
     }
 
-    successResponse(res, 'Password reset email sent');
+    successResponse(res, 'If an account exists with this email, a password reset link has been sent.');
   } catch (error) {
     errorResponse(res, error.message, 500);
   }
@@ -213,6 +206,7 @@ exports.resetPassword = async (req, res) => {
       user: user._id,
       userName: user.name,
       userRole: user.role,
+      company: user.company?._id || user.company || null, // Optional for super_admin
       action: 'password_reset',
       entityType: 'user',
       entityId: user._id,
@@ -249,6 +243,7 @@ exports.changePassword = async (req, res) => {
       user: user._id,
       userName: user.name,
       userRole: user.role,
+      company: user.company?._id || user.company || null, // Optional for super_admin
       action: 'password_change',
       entityType: 'user',
       entityId: user._id,
@@ -271,11 +266,19 @@ exports.updateProfile = async (req, res) => {
     
     const user = await User.findById(req.user.id);
 
-    // Check if email is taken by another user
+    // ✅ FIX #7: Check if email is taken by another user (scoped to company)
     if (email && email !== user.email) {
-      const existingUser = await User.findOne({ email });
+      let emailQuery = { email: email.toLowerCase() };
+      if (user.role === 'super_admin') {
+        // Super admin email is globally unique
+        emailQuery.company = { $exists: false };
+      } else {
+        // Regular users: unique per company
+        emailQuery.company = user.company?._id || user.company;
+      }
+      const existingUser = await User.findOne(emailQuery);
       if (existingUser) {
-        return errorResponse(res, 'Email already in use', 400);
+        return errorResponse(res, 'Email already in use in this company', 400);
       }
     }
 

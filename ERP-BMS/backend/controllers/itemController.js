@@ -4,6 +4,7 @@ const {
   errorResponse,
   paginatedResponse
 } = require('../utils/response');
+const { addCompanyFilter, validateCompanyOwnership } = require('../middleware/companyScope');
 
 /**
  * GET ALL ITEMS
@@ -45,15 +46,18 @@ exports.getAllItems = async (req, res) => {
     const limitNum = Number(limit);
     const skip = (pageNum - 1) * limitNum;
 
+    // Add company filter
+    const companyFilteredQuery = addCompanyFilter(query, req);
+
     // Execute query
-    const items = await Item.find(query)
+    const items = await Item.find(companyFilteredQuery)
       .sort(sort)
       .skip(skip)
       .limit(limitNum)
       .populate('createdBy', 'name');
 
     // Get total count
-    const total = await Item.countDocuments(query);
+    const total = await Item.countDocuments(companyFilteredQuery);
 
     // Calculate pagination
     paginatedResponse(res, 'Items retrieved successfully', items, {
@@ -74,7 +78,16 @@ exports.getAllItems = async (req, res) => {
  */
 exports.getItem = async (req, res) => {
   try {
-    const item = await Item.findById(req.params.id)
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(Item, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Item not found', 404);
+    }
+
+    const item = await Item.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    })
       .populate('createdBy', 'name');
 
     if (!item) {
@@ -94,11 +107,18 @@ exports.createItem = async (req, res) => {
   try {
     const { type, name, description, sellingPrice } = req.body;
 
+    // Get company ID
+    const companyId = req.user.company?._id || req.user.company;
+    if (!companyId && req.user.role !== 'super_admin') {
+      return errorResponse(res, 'Company association required', 400);
+    }
+
     const item = await Item.create({
       type: type || 'Goods',
       name,
       description,
       sellingPrice,
+      company: companyId,
       createdBy: req.user.id
     });
 
@@ -113,7 +133,16 @@ exports.createItem = async (req, res) => {
  */
 exports.updateItem = async (req, res) => {
   try {
-    const item = await Item.findById(req.params.id);
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(Item, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Item not found', 404);
+    }
+
+    const item = await Item.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    });
 
     if (!item) {
       return errorResponse(res, 'Item not found', 404);
@@ -141,7 +170,16 @@ exports.updateItem = async (req, res) => {
  */
 exports.deleteItem = async (req, res) => {
   try {
-    const item = await Item.findById(req.params.id);
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(Item, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Item not found', 404);
+    }
+
+    const item = await Item.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    });
 
     if (!item) {
       return errorResponse(res, 'Item not found', 404);
@@ -159,7 +197,16 @@ exports.deleteItem = async (req, res) => {
  */
 exports.toggleItemStatus = async (req, res) => {
   try {
-    const item = await Item.findById(req.params.id);
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(Item, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Item not found', 404);
+    }
+
+    const item = await Item.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    });
 
     if (!item) {
       return errorResponse(res, 'Item not found', 404);
@@ -181,7 +228,11 @@ exports.toggleItemStatus = async (req, res) => {
  */
 exports.getItemStats = async (req, res) => {
   try {
+    // Add company match stage
+    const companyMatch = req.user.role === 'super_admin' ? {} : { company: req.user.company._id || req.user.company };
+
     const stats = await Item.aggregate([
+      { $match: companyMatch },
       {
         $facet: {
           totalItems: [
@@ -214,7 +265,7 @@ exports.getItemStats = async (req, res) => {
  */
 exports.exportItems = async (req, res) => {
   try {
-    const items = await Item.find()
+    const items = await Item.find(addCompanyFilter({}, req))
       .select('type name description sellingPrice isActive')
       .sort('type name');
 

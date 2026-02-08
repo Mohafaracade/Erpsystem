@@ -9,6 +9,7 @@ const PDFGenerator = require('../utils/pdfGenerator');
 const path = require('path');
 const fs = require('fs');
 const { createNotification } = require('./notificationController');
+const { addCompanyFilter, validateCompanyOwnership } = require('../middleware/companyScope');
 
 // @desc    Get all sales receipts
 // @route   GET /api/receipts
@@ -69,8 +70,11 @@ exports.getAllReceipts = async (req, res) => {
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
+    // Add company filter
+    const companyFilteredQuery = addCompanyFilter(query, req);
+
     // Execute query with pagination
-    const receipts = await SalesReceipt.find(query)
+    const receipts = await SalesReceipt.find(companyFilteredQuery)
       .sort(sort)
       .skip(skip)
       .limit(limitNum)
@@ -78,7 +82,7 @@ exports.getAllReceipts = async (req, res) => {
       .populate('createdBy', 'name email');
 
     // Get total count
-    const total = await SalesReceipt.countDocuments(query);
+    const total = await SalesReceipt.countDocuments(companyFilteredQuery);
 
     // Calculate pagination info
     const pagination = {
@@ -102,7 +106,16 @@ exports.getAllReceipts = async (req, res) => {
 // @access  Private
 exports.getReceipt = async (req, res) => {
   try {
-    const receipt = await SalesReceipt.findById(req.params.id)
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(SalesReceipt, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Sales receipt not found', 404);
+    }
+
+    const receipt = await SalesReceipt.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    })
       .populate('customer')
       .populate('createdBy', 'name email')
       .populate('items.item', 'name description sellingPrice');
@@ -147,18 +160,47 @@ exports.createReceipt = async (req, res) => {
     // Customer is now optional for walk-in sales
     let customerDoc = null;
     if (customer) {
-      customerDoc = await Customer.findById(customer);
+      customerDoc = await Customer.findOne({
+        _id: customer,
+        ...addCompanyFilter({}, req)
+      });
       if (!customerDoc) {
-        return errorResponse(res, 'Customer not found', 404);
+        return errorResponse(res, 'Customer not found or access denied', 404);
       }
     }
+
+    // Get company ID
+    const companyId = req.user.company?._id || req.user.company;
+    if (!companyId && req.user.role !== 'super_admin') {
+      return errorResponse(res, 'Company association required', 400);
+    }
+
+    // ✅ FIX #1: Batch fetch items to eliminate N+1 queries
+    const itemIds = items.map(i => i.item);
+    const itemDocs = await Item.find({
+      _id: { $in: itemIds },
+      ...addCompanyFilter({}, req)
+    });
+    const itemMap = new Map(itemDocs.map(i => [i._id.toString(), i]));
 
     // Validate items and populate itemDetails according to schema
     const validatedItems = [];
     for (const item of items) {
-      const itemDoc = await Item.findById(item.item);
+      const itemDoc = itemMap.get(item.item);
       if (!itemDoc) {
-        return errorResponse(res, `Item ${item.item} not found`, 404);
+        return errorResponse(res, `Item ${item.item} not found or access denied`, 404);
+      }
+
+      // ✅ CRITICAL FIX: Stock validation for Goods items
+      const quantity = Number(item.quantity);
+      if (itemDoc.type === 'Goods' && itemDoc.trackInventory !== false) {
+        const currentStock = Number(itemDoc.stockQuantity) || 0;
+        if (currentStock < quantity) {
+          return errorResponse(res, 
+            `Insufficient stock for "${itemDoc.name}". Available: ${currentStock}, Requested: ${quantity}`, 
+            400
+          );
+        }
       }
 
       // Build item object matching receiptItemSchema exactly
@@ -171,7 +213,7 @@ exports.createReceipt = async (req, res) => {
 
       validatedItems.push({
         item: item.item, // ObjectId - required
-        quantity: Number(item.quantity), // Number - required, min 0.01
+        quantity: quantity, // Number - required, min 0.01
         rate: Number(item.rate), // Number - required, min 0
         tax: Number(item.tax) || 0, // Number - default 0
         amount: Number(item.amount), // Number - required, min 0
@@ -180,10 +222,10 @@ exports.createReceipt = async (req, res) => {
       });
     }
 
-    // Generate receipt number
-    const salesReceiptNumber = await generateReceiptNumber();
+    // Generate receipt number (company-specific)
+    const salesReceiptNumber = await generateReceiptNumber(companyId);
 
-    // Create receipt matching salesReceiptSchema exactly
+    // Create receipt first (if this fails, no stock is updated)
     const receipt = await SalesReceipt.create({
       customer: customer || undefined, // Optional for walk-in sales
       customerDetails: customerDoc ? {
@@ -206,8 +248,35 @@ exports.createReceipt = async (req, res) => {
       notes: notes || undefined,
       status: 'completed', // Force completed for real revenue
       source: 'pos', // Force POS only
+      company: companyId,
       createdBy: req.user.id
     });
+
+    // ✅ CRITICAL FIX: Update stock quantities atomically AFTER receipt creation
+    // Only update stock for Goods items with inventory tracking
+    // Use atomic findOneAndUpdate with condition to prevent overselling
+    for (const item of validatedItems) {
+      const itemDoc = itemMap.get(item.item.toString());
+      if (itemDoc && itemDoc.type === 'Goods' && itemDoc.trackInventory !== false) {
+        const result = await Item.findOneAndUpdate(
+          { 
+            _id: itemDoc._id,
+            stockQuantity: { $gte: item.quantity } // ✅ Atomic check: only update if stock is sufficient
+          },
+          { $inc: { stockQuantity: -item.quantity } },
+          { new: true }
+        );
+        
+        // If stock update failed (insufficient stock), rollback receipt
+        if (!result) {
+          await receipt.deleteOne();
+          return errorResponse(res, 
+            `Insufficient stock for "${itemDoc.name}". Stock was updated by another transaction.`, 
+            400
+          );
+        }
+      }
+    }
 
     // Create notification
     await createNotification({
@@ -230,7 +299,16 @@ exports.createReceipt = async (req, res) => {
 // @access  Private
 exports.updateReceipt = async (req, res) => {
   try {
-    const receipt = await SalesReceipt.findById(req.params.id);
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(SalesReceipt, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Sales receipt not found', 404);
+    }
+
+    const receipt = await SalesReceipt.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    });
 
     if (!receipt) {
       return errorResponse(res, 'Sales receipt not found', 404);
@@ -258,9 +336,12 @@ exports.updateReceipt = async (req, res) => {
 
     // Update customer/customerDetails
     if (customer !== undefined) {
-      const customerDoc = await Customer.findById(customer);
+      const customerDoc = await Customer.findOne({
+        _id: customer,
+        ...addCompanyFilter({}, req)
+      });
       if (!customerDoc) {
-        return errorResponse(res, 'Customer not found', 404);
+        return errorResponse(res, 'Customer not found or access denied', 404);
       }
       receipt.customer = customer;
       receipt.customerDetails = {
@@ -277,9 +358,12 @@ exports.updateReceipt = async (req, res) => {
 
       const validatedItems = [];
       for (const item of items) {
-        const itemDoc = await Item.findById(item.item);
+        const itemDoc = await Item.findOne({
+          _id: item.item,
+          ...addCompanyFilter({}, req)
+        });
         if (!itemDoc) {
-          return errorResponse(res, `Item ${item.item} not found`, 404);
+          return errorResponse(res, `Item ${item.item} not found or access denied`, 404);
         }
 
         const itemDetails = {
@@ -338,7 +422,16 @@ exports.updateReceipt = async (req, res) => {
 // @access  Private (Admin only)
 exports.deleteReceipt = async (req, res) => {
   try {
-    const receipt = await SalesReceipt.findById(req.params.id);
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(SalesReceipt, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Sales receipt not found', 404);
+    }
+
+    const receipt = await SalesReceipt.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    });
 
     if (!receipt) {
       return errorResponse(res, 'Sales receipt not found', 404);
@@ -357,7 +450,16 @@ exports.deleteReceipt = async (req, res) => {
 // @access  Private
 exports.downloadReceipt = async (req, res) => {
   try {
-    const receipt = await SalesReceipt.findById(req.params.id)
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(SalesReceipt, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Sales receipt not found', 404);
+    }
+
+    const receipt = await SalesReceipt.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    })
       .populate('customer')
       .populate('items.item');
 
@@ -402,6 +504,11 @@ exports.getReceiptStats = async (req, res) => {
       matchStage.receiptDate = {};
       if (startDate) matchStage.receiptDate.$gte = new Date(startDate);
       if (endDate) matchStage.receiptDate.$lte = new Date(endDate);
+    }
+
+    // Add company filter
+    if (req.user.role !== 'super_admin' && req.user.company) {
+      matchStage.company = req.user.company._id || req.user.company;
     }
 
     const stats = await SalesReceipt.aggregate([
@@ -458,7 +565,7 @@ exports.exportReceipts = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
 
-    let query = {};
+    let query = addCompanyFilter({}, req);
     if (startDate || endDate) {
       query.receiptDate = {};
       if (startDate) query.receiptDate.$gte = new Date(startDate);

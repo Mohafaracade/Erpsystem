@@ -14,6 +14,8 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  Building2,
+  Shield,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 
@@ -38,22 +40,26 @@ const Sidebar = ({ isOpen, onClose }) => {
     }
   }, [isOpen, onClose])
 
+  const { isSuperAdmin, isCompanyAdmin, isAdmin, canManageUsers } = useAuth()
+
   const navItems = [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/items', icon: Package, label: 'Items' },
     { path: '/customers', icon: Users, label: 'Customers' },
     { path: '/invoices', icon: FileText, label: 'Invoices' },
     { path: '/receipts', icon: Receipt, label: 'Sales Receipts' },
-    { path: '/expenses', icon: DollarSign, label: 'Expenses', roles: ['admin', 'accountant'] },
-    { path: '/reports', icon: BarChart3, label: 'Analytics & Reports', roles: ['admin', 'accountant'] },
+    { path: '/expenses', icon: DollarSign, label: 'Expenses', roles: ['super_admin', 'company_admin', 'admin', 'accountant'] },
+    { path: '/reports', icon: BarChart3, label: 'Analytics & Reports', roles: ['super_admin', 'company_admin', 'admin', 'accountant'] },
   ].filter(item => !item.roles || item.roles.includes(user?.role))
 
   const adminItems = [
-    { path: '/users', icon: UserCog, label: 'Users' },
+    { path: '/users', icon: UserCog, label: 'Users', roles: ['super_admin', 'company_admin'] }, // ✅ SECURITY FIX: admin role removed
     { path: '/settings', icon: Settings, label: 'Settings' },
-  ]
+  ].filter(item => !item.roles || item.roles.includes(user?.role))
 
-  const isAdmin = user?.role === 'admin'
+  const superAdminItems = [
+    { path: '/companies', icon: Building2, label: 'Companies' },
+  ]
 
   return (
     <div
@@ -139,8 +145,45 @@ const Sidebar = ({ isOpen, onClose }) => {
           })}
         </div>
 
+        {/* Super Admin Section */}
+        {isSuperAdmin() && (
+          <div className={`mt-6 pt-6 border-t border-border/60 ${isCollapsed ? 'px-2' : 'px-3'}`}>
+            {!isCollapsed && (
+              <p className="px-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-[0.1em] mb-3">
+                System Administration
+              </p>
+            )}
+            {superAdminItems.map((item) => {
+              const Icon = item.icon
+              return (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  className={({ isActive }) =>
+                    `relative flex items-center ${isCollapsed ? 'justify-center px-3' : 'px-4'} py-3 rounded-xl transition-all duration-200 group ${isActive
+                      ? 'bg-primary text-primary-foreground shadow-md font-medium'
+                      : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+                    }`
+                  }
+                  title={isCollapsed ? item.label : ''}
+                >
+                  {({ isActive }) => (
+                    <>
+                      {isActive && !isCollapsed && (
+                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary-foreground rounded-r-full" />
+                      )}
+                      <Icon className={`w-4 h-4 ${isCollapsed ? '' : 'mr-3'} transition-colors flex-shrink-0 ${isActive ? 'text-primary-foreground' : ''}`} />
+                      {!isCollapsed && <span className="text-sm">{item.label}</span>}
+                    </>
+                  )}
+                </NavLink>
+              )
+            })}
+          </div>
+        )}
+
         {/* Admin Section */}
-        {isAdmin && (
+        {canManageUsers() && (
           <div className={`mt-6 pt-6 border-t border-border/60 ${isCollapsed ? 'px-2' : 'px-3'}`}>
             {!isCollapsed && (
               <p className="px-4 text-[10px] font-semibold text-muted-foreground uppercase tracking-[0.1em] mb-3">
@@ -187,7 +230,10 @@ const Sidebar = ({ isOpen, onClose }) => {
               </div>
               <div className="ml-3 flex-1 min-w-0">
                 <p className="text-sm font-medium text-foreground truncate">{user?.name}</p>
-                <p className="text-xs text-muted-foreground capitalize">{user?.role}</p>
+                <p className="text-xs text-muted-foreground capitalize">
+                  {user?.role?.replace('_', ' ')}
+                  {user?.company?.name && ` • ${user.company.name}`}
+                </p>
               </div>
             </div>
             <button

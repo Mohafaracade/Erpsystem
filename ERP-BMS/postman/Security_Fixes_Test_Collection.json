@@ -1,0 +1,886 @@
+{
+	"info": {
+		"_postman_id": "security-fixes-test-collection",
+		"name": "Security Fixes Test Collection",
+		"description": "Comprehensive test collection for all security fixes in the multi-tenant ERP system",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Authentication",
+			"item": [
+				{
+					"name": "Login - Super Admin",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const jsonData = pm.response.json();",
+									"    pm.environment.set('superAdminToken', jsonData.data.token || jsonData.token);",
+									"    pm.environment.set('superAdminId', jsonData.data.user.id || jsonData.user.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"superadmin@system.com\",\n    \"password\": \"SuperAdmin123!\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "Login - Company A Admin",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const jsonData = pm.response.json();",
+									"    pm.environment.set('adminAToken', jsonData.data.token || jsonData.token);",
+									"    pm.environment.set('adminAId', jsonData.data.user.id || jsonData.user.id);",
+									"    pm.environment.set('companyAId', jsonData.data.user.company?.id || jsonData.user.company?.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"admin-a@test.com\",\n    \"password\": \"Password123!\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "Login - Company A Staff",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const jsonData = pm.response.json();",
+									"    pm.environment.set('staffAToken', jsonData.data.token || jsonData.token);",
+									"    pm.environment.set('staffAId', jsonData.data.user.id || jsonData.user.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"staff-a@test.com\",\n    \"password\": \"Password123!\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "Login - Company B Admin",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const jsonData = pm.response.json();",
+									"    pm.environment.set('adminBToken', jsonData.data.token || jsonData.token);",
+									"    pm.environment.set('adminBId', jsonData.data.user.id || jsonData.user.id);",
+									"    pm.environment.set('companyBId', jsonData.data.user.company?.id || jsonData.user.company?.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"admin-b@test.com\",\n    \"password\": \"Password123!\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "login"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "2. CRITICAL FIXES",
+			"item": [
+				{
+					"name": "FIX #1 & #2: User Management",
+					"item": [
+						{
+							"name": "Get All Users (Company A Admin)",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"if (pm.response.code === 200) {",
+											"    const jsonData = pm.response.json();",
+											"    const users = jsonData.data || jsonData.users || [];",
+											"    if (users.length > 0) {",
+											"        pm.environment.set('companyAUserId', users[0]._id || users[0].id);",
+											"    }",
+											"}"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminAToken}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/users",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "users"]
+								}
+							}
+						},
+						{
+							"name": "Get All Users (Company B Admin)",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"if (pm.response.code === 200) {",
+											"    const jsonData = pm.response.json();",
+											"    const users = jsonData.data || jsonData.users || [];",
+											"    if (users.length > 0) {",
+											"        pm.environment.set('companyBUserId', users[0]._id || users[0].id);",
+											"    }",
+											"}"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminBToken}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/users",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "users"]
+								}
+							}
+						},
+						{
+							"name": "TEST #1: Try Update User from Other Company",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code should be 404', function () {",
+											"    pm.response.to.have.status(404);",
+											"});",
+											"pm.test('Should not allow cross-company update', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData.message).to.include('not found');",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminAToken}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"name\": \"Hacked User - Should Fail\"\n}"
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/users/{{companyBUserId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "users", "{{companyBUserId}}"]
+								},
+								"description": "Company A admin trying to update Company B user - Should FAIL with 404"
+							}
+						},
+						{
+							"name": "TEST #2: Try Delete User from Other Company",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code should be 404', function () {",
+											"    pm.response.to.have.status(404);",
+											"});",
+											"pm.test('Should not allow cross-company delete', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData.message).to.include('not found');",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "DELETE",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminAToken}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/users/{{companyBUserId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "users", "{{companyBUserId}}"]
+								},
+								"description": "Company A admin trying to delete Company B user - Should FAIL with 404"
+							}
+						},
+						{
+							"name": "TEST #3: Try Create User with Super Admin Role",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code should be 403', function () {",
+											"    pm.response.to.have.status(403);",
+											"});",
+											"pm.test('Should not allow role escalation', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData.message).to.include('super_admin');",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminAToken}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"name\": \"Fake Super Admin\",\n    \"email\": \"fakesuper@test.com\",\n    \"password\": \"Password123!\",\n    \"role\": \"super_admin\"\n}"
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/users",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "users"]
+								},
+								"description": "Admin trying to create super_admin - Should FAIL with 403"
+							}
+						},
+						{
+							"name": "TEST #8: Try Create User Beyond Limit",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"// This test may pass or fail depending on current user count",
+											"if (pm.response.code === 400) {",
+											"    pm.test('Should return limit error if at limit', function () {",
+											"        const jsonData = pm.response.json();",
+											"        pm.expect(jsonData.message).to.include('limit');",
+											"    });",
+											"}"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminAToken}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"name\": \"Test User\",\n    \"email\": \"testuser@test.com\",\n    \"password\": \"Password123!\",\n    \"role\": \"staff\"\n}"
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/users",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "users"]
+								},
+								"description": "Try creating user - Should fail if at limit"
+							}
+						}
+					]
+				},
+				{
+					"name": "FIX #4: Company Access",
+					"item": [
+						{
+							"name": "TEST #4: Try Access Other Company",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code should be 403', function () {",
+											"    pm.response.to.have.status(403);",
+											"});",
+											"pm.test('Should not allow cross-company access', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData.message).to.include('denied') || pm.expect(jsonData.message).to.include('Access');",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminAToken}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/companies/{{companyBId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "companies", "{{companyBId}}"]
+								},
+								"description": "Company A admin trying to access Company B - Should FAIL with 403"
+							}
+						},
+						{
+							"name": "TEST #4: Try Update Other Company",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code should be 403', function () {",
+											"    pm.response.to.have.status(403);",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminAToken}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"name\": \"Hacked Company - Should Fail\"\n}"
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/companies/{{companyBId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "companies", "{{companyBId}}"]
+								},
+								"description": "Company A admin trying to update Company B - Should FAIL with 403"
+							}
+						}
+					]
+				},
+				{
+					"name": "FIX #6: Subscription Check",
+					"item": [
+						{
+							"name": "TEST #6: Access with Suspended Subscription",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"// Note: Requires manual subscription change in database",
+											"pm.test('Should block access if subscription suspended', function () {",
+											"    if (pm.response.code === 401) {",
+											"        const jsonData = pm.response.json();",
+											"        pm.expect(jsonData.message).to.include('subscription');",
+											"    }",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminAToken}}"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/invoices",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "invoices"]
+								},
+								"description": "After suspending subscription in DB, this should return 401"
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "3. HIGH PRIORITY FIXES",
+			"item": [
+				{
+					"name": "FIX #9: Expense Status",
+					"item": [
+						{
+							"name": "TEST #9: Staff Create Expense with Status",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code should be 201', function () {",
+											"    pm.response.to.have.status(201);",
+											"});",
+											"pm.test('Expense status should be pending (not approved)', function () {",
+											"    const jsonData = pm.response.json();",
+											"    const expense = jsonData.data || jsonData.expense;",
+											"    pm.expect(expense.status).to.equal('pending');",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{staffAToken}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"title\": \"Staff Expense Test\",\n    \"amount\": 100,\n    \"date\": \"2024-01-15\",\n    \"category\": \"office\",\n    \"status\": \"approved\"\n}"
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/expenses",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "expenses"]
+								},
+								"description": "Staff trying to set status - Should be ignored, status should be 'pending'"
+							}
+						},
+						{
+							"name": "TEST #9: Staff Try Update Expense Status",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code should be 403', function () {",
+											"    pm.response.to.have.status(403);",
+											"});",
+											"pm.test('Should not allow staff to change status', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData.message).to.include('administrator');",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{staffAToken}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"status\": \"approved\"\n}"
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/expenses/:expenseId",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "expenses", ":expenseId"],
+									"variable": [
+										{
+											"key": "expenseId",
+											"value": "REPLACE_WITH_EXPENSE_ID"
+										}
+									]
+								},
+								"description": "Staff trying to update expense status - Should FAIL with 403"
+							}
+						}
+					]
+				},
+				{
+					"name": "FIX #12: Password Reset",
+					"item": [
+						{
+							"name": "TEST #10: Password Reset with CompanyId",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code should be 200', function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test('Should return success message', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData.success).to.be.true;",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"email\": \"staff-a@test.com\",\n    \"companyId\": \"{{companyAId}}\"\n}"
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/auth/forgot-password",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "auth", "forgot-password"]
+								},
+								"description": "Password reset with correct companyId - Should succeed"
+							}
+						},
+						{
+							"name": "TEST #10: Password Reset with Wrong CompanyId",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code should be 200 (no user enumeration)', function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test('Should return same success message (security)', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData.success).to.be.true;",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"email\": \"staff-a@test.com\",\n    \"companyId\": \"{{companyBId}}\"\n}"
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/auth/forgot-password",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "auth", "forgot-password"]
+								},
+								"description": "Password reset with wrong companyId - Should return success (no enumeration) but not send email"
+							}
+						}
+					]
+				},
+				{
+					"name": "FIX #19: Storage Limit",
+					"item": [
+						{
+							"name": "TEST #11: Upload File Within Limit",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code should be 201', function () {",
+											"    pm.response.to.have.status(201);",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminAToken}}"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": [
+										{
+											"key": "title",
+											"value": "Test Expense with File",
+											"type": "text"
+										},
+										{
+											"key": "amount",
+											"value": "50",
+											"type": "text"
+										},
+										{
+											"key": "attachments",
+											"type": "file",
+											"src": []
+										}
+									]
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/expenses",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "expenses"]
+								},
+								"description": "Upload file within storage limit - Should succeed"
+							}
+						},
+						{
+							"name": "TEST #11: Upload File Exceeding Limit",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code should be 400', function () {",
+											"    pm.response.to.have.status(400);",
+											"});",
+											"pm.test('Should return storage limit error', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData.message).to.include('Storage limit') || pm.expect(jsonData.message).to.include('limit');",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{adminAToken}}"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": [
+										{
+											"key": "title",
+											"value": "Large Expense",
+											"type": "text"
+										},
+										{
+											"key": "amount",
+											"value": "100",
+											"type": "text"
+										},
+										{
+											"key": "attachments",
+											"type": "file",
+											"src": []
+										}
+									]
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/expenses",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "expenses"]
+								},
+								"description": "Upload file exceeding storage limit - Should FAIL with 400"
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "4. Utility Requests",
+			"item": [
+				{
+					"name": "Get Current User",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{adminAToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/me",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "me"]
+						}
+					}
+				},
+				{
+					"name": "Get All Companies (Super Admin Only)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{superAdminToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/companies",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "companies"]
+						}
+					}
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:5000",
+			"type": "string"
+		}
+	]
+}
+

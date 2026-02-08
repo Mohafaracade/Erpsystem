@@ -11,6 +11,8 @@ import {
 } from 'lucide-react'
 import { reportService } from '../services/api/reportService'
 import { useAuth } from '../contexts/AuthContext'
+import { useCompanyId } from '../hooks/useCompanyId'
+import { validateCompanyData } from '../utils/dataValidation'
 import GlobalDateRangePicker from '../components/common/GlobalDateRangePicker'
 import { getPresetRange } from '../utils/datePresets'
 import { StatCard } from '../components/ui/stat-card'
@@ -34,52 +36,70 @@ const QuickAction = ({ title, icon, onClick, color }) => (
 )
 
 const Dashboard = () => {
+  // ✅ FIX: Get companyId for query keys
+  const companyId = useCompanyId()
+
   const navigate = useNavigate()
   const { user } = useAuth()
   const isAuthorized = user?.role === 'admin' || user?.role === 'accountant'
 
   const [dateRange, setDateRange] = useState(() => getPresetRange('thisMonth'))
 
-  // 1. Fetch Summary Stats (Only for Admin/Accountant)
+  // ✅ FIX: Include companyId in query key
   const {
     data: summaryData,
     isLoading: summaryLoading,
     refetch: refetchSummary,
     error: summaryError
   } = useQuery(
-    ['comprehensiveReports', dateRange],
+    ['comprehensiveReports', companyId, dateRange],
     () => reportService.getComprehensiveReports(dateRange),
     {
       staleTime: 5 * 60 * 1000,
-      enabled: isAuthorized
+      enabled: isAuthorized && !!companyId // ✅ FIX: Don't fetch if no companyId
     }
   )
 
   const stats = summaryData?.data || {}
 
-  // 2. Fetch Sales Trend (Real Data)
+  // ✅ FIX: Include companyId in query key
   const { data: trendResponse, isLoading: trendLoading } = useQuery(
-    ['revenueTrend', dateRange],
+    ['revenueTrend', companyId, dateRange],
     () => reportService.getRevenueTrend({ ...dateRange, groupBy: 'day' }),
-    { staleTime: 10 * 60 * 1000 }
+    { 
+      staleTime: 10 * 60 * 1000,
+      enabled: !!companyId // ✅ FIX: Don't fetch if no companyId
+    }
   )
   const trendData = trendResponse?.data || []
 
-  // 3. Fetch Expenses by Category (Real Data)
+  // ✅ FIX: Include companyId in query key
   const { data: categoryResponse, isLoading: categoryLoading } = useQuery(
-    ['expensesByCategory', dateRange],
+    ['expensesByCategory', companyId, dateRange],
     () => reportService.getExpensesByCategory(dateRange),
-    { staleTime: 10 * 60 * 1000 }
+    { 
+      staleTime: 10 * 60 * 1000,
+      enabled: !!companyId // ✅ FIX: Don't fetch if no companyId
+    }
   )
   const categoryData = categoryResponse?.data || []
 
-  // 4. Fetch Recent Transactions (Real Data)
+  // ✅ FIX: Include companyId in query key
   const { data: transactionResponse, isLoading: transactionLoading } = useQuery(
-    ['recentTransactions', dateRange],
+    ['recentTransactions', companyId, dateRange],
     () => reportService.getDetailedTransactions({ ...dateRange, limit: 5 }),
-    { staleTime: 2 * 60 * 1000 }
+    { 
+      staleTime: 2 * 60 * 1000,
+      enabled: !!companyId // ✅ FIX: Don't fetch if no companyId
+    }
   )
-  const transactions = transactionResponse?.data?.data || []
+  const rawTransactions = transactionResponse?.data?.data || []
+  
+  // ✅ FIX: Validate company data before rendering
+  const { filteredRecords: transactions, invalidCount } = validateCompanyData(rawTransactions, companyId, 'company')
+  if (invalidCount > 0) {
+    console.error(`[Dashboard] ${invalidCount} transactions with wrong companyId detected and filtered out`)
+  }
 
   const handleRefresh = () => {
     refetchSummary()

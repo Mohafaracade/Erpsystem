@@ -21,12 +21,17 @@ import { toast } from 'react-hot-toast'
 import ConfirmDialog from '../../components/common/ConfirmDialog'
 import CustomerList from '../../components/customers/CustomerList'
 import { useDebounce } from '../../hooks/useDebounce'
+import { useCompanyId } from '../../hooks/useCompanyId'
+import { validateCompanyData } from '../../utils/dataValidation'
 import { customerService } from '../../services/api/customerService'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Card, CardContent } from '../../components/ui/card'
 
 const Customers = () => {
+  // ✅ FIX: Get companyId for query keys
+  const companyId = useCompanyId()
+
   const location = useLocation()
   const navigate = useNavigate()
   const [searchTerm, setSearchTerm] = useState('')
@@ -47,12 +52,13 @@ const Customers = () => {
   const queryClient = useQueryClient()
   const limit = 5
 
+  // ✅ FIX: Include companyId in query key
   const {
     data,
     isLoading,
     isError,
   } = useQuery(
-    ['customers', debouncedSearch, customerType, page],
+    ['customers', companyId, debouncedSearch, customerType, page],
     () =>
       customerService.getAll({
         search: debouncedSearch || undefined,
@@ -60,10 +66,21 @@ const Customers = () => {
         page,
         limit,
       }),
-    { keepPreviousData: true }
+    { 
+      keepPreviousData: true,
+      enabled: !!companyId // ✅ FIX: Don't fetch if no companyId
+    }
   )
 
-  const customers = data?.data || []
+  const rawCustomers = data?.data || []
+  
+  // ✅ FIX: Validate company data before rendering
+  const { filteredRecords: customers, invalidCount } = validateCompanyData(rawCustomers, companyId, 'company')
+  if (invalidCount > 0) {
+    console.error(`[Customers] ${invalidCount} customers with wrong companyId detected and filtered out`)
+    queryClient.invalidateQueries(['customers', companyId])
+  }
+  
   const pagination = data?.pagination || { page: 1, pages: 1, total: 0 }
 
   useEffect(() => {
@@ -73,7 +90,7 @@ const Customers = () => {
   const deleteCustomer = useMutation(customerService.delete, {
     onSuccess: () => {
       toast.success('Customer deleted')
-      queryClient.invalidateQueries({ queryKey: ['customers'] })
+      queryClient.invalidateQueries({ queryKey: ['customers', companyId] })
     },
     onError: (error) => {
       toast.error(error?.response?.data?.message || 'Failed to delete customer')
@@ -104,7 +121,7 @@ const Customers = () => {
 
   const handleRefresh = async () => {
     await queryClient.invalidateQueries({
-      queryKey: ['customers'],
+      queryKey: ['customers', companyId],
       refetchActive: true,
       refetchInactive: true,
     })

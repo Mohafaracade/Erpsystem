@@ -11,11 +11,23 @@ if (!fs.existsSync(uploadDir)) {
 // Configure storage
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, uploadDir);
+    // ✅ FIX #13: Scope file uploads to company
+    const companyId = req.user?.company?._id || req.user?.company || 'system';
+    const companyDir = path.join(uploadDir, companyId.toString());
+    
+    // Ensure company directory exists
+    if (!fs.existsSync(companyDir)) {
+      fs.mkdirSync(companyDir, { recursive: true });
+    }
+    
+    cb(null, companyDir);
   },
   filename: function (req, file, cb) {
+    // ✅ FIX #13: Include company ID in filename for isolation
+    const companyId = req.user?.company?._id || req.user?.company || 'system';
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    const filename = `${companyId}-${uniqueSuffix}${path.extname(file.originalname)}`;
+    cb(null, filename);
   }
 });
 

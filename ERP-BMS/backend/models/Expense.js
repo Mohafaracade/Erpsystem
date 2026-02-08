@@ -56,6 +56,12 @@ const expenseSchema = new mongoose.Schema({
     nextDate: Date,
     endDate: Date
   },
+  company: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Company',
+    required: true,
+    index: true
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -82,6 +88,8 @@ expenseSchema.index({ title: 'text', description: 'text', vendor: 'text' });
 expenseSchema.index({ date: -1 });
 expenseSchema.index({ category: 1 });
 expenseSchema.index({ status: 1 });
+expenseSchema.index({ company: 1, date: -1 });
+expenseSchema.index({ company: 1, status: 1 });
 expenseSchema.index({ createdBy: 1 });
 expenseSchema.index({ amount: 1 });
 

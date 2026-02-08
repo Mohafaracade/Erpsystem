@@ -1,5 +1,6 @@
 const Expense = require('../models/Expense');
 const { successResponse, errorResponse, paginatedResponse } = require('../utils/response');
+const { addCompanyFilter, validateCompanyOwnership } = require('../middleware/companyScope');
 
 // @desc    Get all expenses
 // @route   GET /api/expenses
@@ -67,8 +68,11 @@ exports.getAllExpenses = async (req, res) => {
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
+    // Add company filter
+    const companyFilteredQuery = addCompanyFilter(query, req);
+
     // Execute query with pagination
-    const expenses = await Expense.find(query)
+    const expenses = await Expense.find(companyFilteredQuery)
       .sort(sort)
       .skip(skip)
       .limit(limitNum)
@@ -76,7 +80,7 @@ exports.getAllExpenses = async (req, res) => {
       .populate('approvedBy', 'name email');
 
     // Get total count
-    const total = await Expense.countDocuments(query);
+    const total = await Expense.countDocuments(companyFilteredQuery);
 
     // Calculate pagination info
     const pagination = {
@@ -99,7 +103,16 @@ exports.getAllExpenses = async (req, res) => {
 // @access  Private
 exports.getExpense = async (req, res) => {
   try {
-    const expense = await Expense.findById(req.params.id)
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(Expense, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Expense not found', 404);
+    }
+
+    const expense = await Expense.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    })
       .populate('createdBy', 'name email')
       .populate('approvedBy', 'name email');
 
@@ -142,10 +155,25 @@ exports.createExpense = async (req, res) => {
       }));
     }
 
-    // Determine initial status - respect provided status if Admin, otherwise default based on role
-    let initialStatus = req.user.role === 'admin' ? 'approved' : 'pending';
-    if (req.user.role === 'admin' && ['approved', 'paid'].includes(req.body.status)) {
-      initialStatus = req.body.status;
+    // ✅ FIX #9: Determine initial status - only admins can set status
+    let initialStatus = 'pending'; // Default for all non-admin roles
+    
+    // Only admins can set status to approved/paid
+    if (['admin', 'company_admin', 'super_admin'].includes(req.user.role)) {
+      // Admins can set status, but validate it
+      if (req.body.status && ['approved', 'paid'].includes(req.body.status)) {
+        initialStatus = req.body.status;
+      } else {
+        // Admin expenses are auto-approved by default
+        initialStatus = 'approved';
+      }
+    }
+    // ❌ Ignore status from non-admin users (prevents staff from bypassing approval)
+
+    // Get company ID
+    const companyId = req.user.company?._id || req.user.company;
+    if (!companyId && req.user.role !== 'super_admin') {
+      return errorResponse(res, 'Company association required', 400);
     }
 
     // Create expense
@@ -161,12 +189,14 @@ exports.createExpense = async (req, res) => {
       attachments,
       notes,
       recurring: recurring || { isRecurring: false },
+      company: companyId,
       createdBy: req.user.id,
       status: initialStatus
     });
 
     // If approved or paid by admin, record approval info
-    if (req.user.role === 'admin' && (initialStatus === 'approved' || initialStatus === 'paid')) {
+    if (['admin', 'company_admin', 'super_admin'].includes(req.user.role) && 
+        (initialStatus === 'approved' || initialStatus === 'paid')) {
       expense.approvedBy = req.user.id;
       expense.approvedDate = new Date();
       await expense.save();
@@ -183,13 +213,22 @@ exports.createExpense = async (req, res) => {
 // @access  Private
 exports.updateExpense = async (req, res) => {
   try {
-    const expense = await Expense.findById(req.params.id);
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(Expense, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Expense not found', 404);
+    }
+
+    const expense = await Expense.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    });
 
     if (!expense) {
       return errorResponse(res, 'Expense not found', 404);
     }
 
-    // Update fields
+    // Update fields (non-admin users cannot change status)
     const updateFields = [
       'title', 'description', 'amount', 'date', 'category', 'notes'
     ];
@@ -199,6 +238,19 @@ exports.updateExpense = async (req, res) => {
         expense[field] = req.body[field];
       }
     });
+
+    // ✅ FIX #9: Only admins can update status in updateExpense
+    // Status changes should go through updateExpenseStatus endpoint
+    if (req.body.status !== undefined) {
+      if (!['admin', 'company_admin', 'super_admin'].includes(req.user.role)) {
+        return errorResponse(res, 'Only administrators can change expense status', 403);
+      }
+      expense.status = req.body.status;
+      if (['approved', 'paid'].includes(req.body.status)) {
+        expense.approvedBy = req.user.id;
+        expense.approvedDate = new Date();
+      }
+    }
 
     // Handle recurring updates
     if (req.body.recurring !== undefined) {
@@ -228,7 +280,16 @@ exports.updateExpense = async (req, res) => {
 // @access  Private
 exports.deleteExpense = async (req, res) => {
   try {
-    const expense = await Expense.findById(req.params.id);
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(Expense, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Expense not found', 404);
+    }
+
+    const expense = await Expense.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    });
 
     if (!expense) {
       return errorResponse(res, 'Expense not found', 404);
@@ -259,11 +320,25 @@ exports.deleteExpense = async (req, res) => {
 
 // @desc    Update expense status (approve/reject)
 // @route   PUT /api/expenses/:id/status
-// @access  Private (Admin/Accountant)
+// @access  Private (Admin only - NOT accountant)
 exports.updateExpenseStatus = async (req, res) => {
   try {
+    // ✅ FIX #2: Only administrators can change expense status (accountant cannot approve)
+    if (!['admin', 'company_admin', 'super_admin'].includes(req.user.role)) {
+      return errorResponse(res, 'Only administrators can change expense status', 403);
+    }
+    
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(Expense, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Expense not found', 404);
+    }
+
     const { status } = req.body;
-    const expense = await Expense.findById(req.params.id);
+    const expense = await Expense.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    });
 
     if (!expense) {
       return errorResponse(res, 'Expense not found', 404);
@@ -294,7 +369,16 @@ exports.updateExpenseStatus = async (req, res) => {
 // @access  Private
 exports.downloadAttachment = async (req, res) => {
   try {
-    const expense = await Expense.findById(req.params.id);
+    // Validate company ownership
+    const hasAccess = await validateCompanyOwnership(Expense, req.params.id, req);
+    if (!hasAccess) {
+      return errorResponse(res, 'Expense not found', 404);
+    }
+
+    const expense = await Expense.findOne({
+      _id: req.params.id,
+      ...addCompanyFilter({}, req)
+    });
 
     if (!expense) {
       return errorResponse(res, 'Expense not found', 404);
@@ -323,6 +407,11 @@ exports.getExpenseStats = async (req, res) => {
       matchStage.date = {};
       if (startDate) matchStage.date.$gte = new Date(startDate);
       if (endDate) matchStage.date.$lte = new Date(endDate);
+    }
+
+    // Add company filter
+    if (req.user.role !== 'super_admin' && req.user.company) {
+      matchStage.company = req.user.company._id || req.user.company;
     }
 
     const stats = await Expense.aggregate([
@@ -407,7 +496,7 @@ exports.exportExpenses = async (req, res) => {
   try {
     const { startDate, endDate, category } = req.query;
 
-    let query = {};
+    let query = addCompanyFilter({}, req);
     if (startDate || endDate) {
       query.date = {};
       if (startDate) query.date.$gte = new Date(startDate);

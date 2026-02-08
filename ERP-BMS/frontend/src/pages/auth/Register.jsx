@@ -140,30 +140,31 @@ const Register = () => {
           {/* Header */}
           <div className="space-y-2">
             <h2 className="text-3xl font-bold text-foreground tracking-tight">
-              Create an account
+              Registration Disabled
             </h2>
             <p className="text-sm text-muted-foreground">
-              Get started with your free 30-day trial
+              Public registration is not available
             </p>
           </div>
 
-          {/* Error Message */}
-          {error && (
-            <Card className="bg-destructive/5 border-destructive/20">
-              <CardContent className="p-4">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-destructive">Registration failed</p>
-                    <p className="text-xs text-destructive/80 mt-1">{error}</p>
+          {/* Disabled Message */}
+          <Card className="bg-muted/50 border-border">
+            <CardContent className="p-6">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0 space-y-2">
+                  <p className="text-sm font-medium text-foreground">Manual Onboarding Required</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    For security and quality control, new accounts must be created by your system administrator. 
+                    Please contact your administrator to request access to the system.
+                  </p>
+                </div>
               </div>
-            </div>
-              </CardContent>
-            </Card>
-          )}
+            </CardContent>
+          </Card>
 
-          {/* Register Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Register Form - Hidden but kept for structure */}
+          <form onSubmit={handleSubmit} className="space-y-4 hidden">
             <div className="space-y-2">
               <Label htmlFor="name" className="text-sm font-medium">
                 Full name
@@ -290,12 +291,15 @@ const Register = () => {
           </div>
 
           {/* Sign In Link */}
-          <div className="text-center">
+          <div className="text-center space-y-2">
             <Link to="/login">
-              <Button variant="outline" className="w-full">
-                Sign in instead
+              <Button className="w-full">
+                Go to Login
               </Button>
-              </Link>
+            </Link>
+            <p className="text-xs text-muted-foreground">
+              Already have an account? Sign in to access the system.
+            </p>
           </div>
 
           {/* Footer */}

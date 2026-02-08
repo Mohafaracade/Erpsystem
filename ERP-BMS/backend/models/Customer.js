@@ -34,6 +34,12 @@ const customerSchema = new mongoose.Schema({
     enum: ['active', 'inactive'],
     default: 'active'
   },
+  company: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Company',
+    required: true,
+    index: true
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -49,6 +55,7 @@ const customerSchema = new mongoose.Schema({
 customerSchema.index({ fullName: 'text', phone: 'text' });
 customerSchema.index({ customerType: 1 });
 customerSchema.index({ status: 1 });
+customerSchema.index({ company: 1, createdAt: -1 });
 customerSchema.index({ createdBy: 1 });
 
 const Customer = mongoose.model('Customer', customerSchema);

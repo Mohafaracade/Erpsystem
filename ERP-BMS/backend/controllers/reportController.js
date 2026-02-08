@@ -4,6 +4,9 @@ const Expense = require('../models/Expense');
 const Customer = require('../models/Customer');
 const { successResponse, errorResponse } = require('../utils/response');
 
+// ✅ FIX #12: Use centralized company filter helper
+const { getCompanyFilter } = require('../middleware/companyScope');
+
 // Helper function to get previous period filter with correct date ranges
 function getPreviousPeriodFilter(currentFilter) {
   const previousFilter = {};
@@ -48,15 +51,38 @@ exports.getComprehensiveReports = async (req, res) => {
     if (startDate) dateFilter.$gte = new Date(startDate);
     if (endDate) dateFilter.$lte = new Date(endDate);
 
-    const currentInvoiceQuery = Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {};
-    const currentExpenseQuery = Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {};
-    const currentReceiptQuery = Object.keys(dateFilter).length > 0 ? { receiptDate: dateFilter } : {};
+    const companyFilter = getCompanyFilter(req);
+    
+    const currentInvoiceQuery = { 
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {})
+    };
+    const currentExpenseQuery = { 
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {})
+    };
+    const currentReceiptQuery = { 
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { receiptDate: dateFilter } : {})
+    };
 
     const prevFilter = getPreviousPeriodFilter(dateFilter);
-    const prevInvoiceQuery = Object.keys(prevFilter).length > 0 ? { invoiceDate: prevFilter } : {};
-    const prevExpenseQuery = Object.keys(prevFilter).length > 0 ? { date: prevFilter } : {};
-    const prevCustomerQuery = Object.keys(prevFilter).length > 0 ? { createdAt: prevFilter } : {};
-    const prevReceiptQuery = Object.keys(prevFilter).length > 0 ? { receiptDate: prevFilter } : {};
+    const prevInvoiceQuery = { 
+      ...companyFilter,
+      ...(Object.keys(prevFilter).length > 0 ? { invoiceDate: prevFilter } : {})
+    };
+    const prevExpenseQuery = { 
+      ...companyFilter,
+      ...(Object.keys(prevFilter).length > 0 ? { date: prevFilter } : {})
+    };
+    const prevCustomerQuery = { 
+      ...companyFilter,
+      ...(Object.keys(prevFilter).length > 0 ? { createdAt: prevFilter } : {})
+    };
+    const prevReceiptQuery = { 
+      ...companyFilter,
+      ...(Object.keys(prevFilter).length > 0 ? { receiptDate: prevFilter } : {})
+    };
 
     // Get all data in parallel
     const [
@@ -100,7 +126,10 @@ exports.getComprehensiveReports = async (req, res) => {
         { $match: { ...currentExpenseQuery, status: 'paid' } },
         { $group: { _id: null, totalExpenses: { $sum: '$amount' } } }
       ]),
-      Customer.countDocuments(Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {}),
+      Customer.countDocuments({ 
+        ...companyFilter,
+        ...(Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {})
+      }),
       Invoice.aggregate([
         {
           $match: {
@@ -205,8 +234,16 @@ exports.getRevenueTrend = async (req, res) => {
     if (startDate) dateFilter.$gte = new Date(startDate);
     if (endDate) dateFilter.$lte = new Date(endDate);
 
-    const invoiceMatch = Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {};
-    const expenseMatch = Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {};
+    // ✅ FIX #4 & #6: Add company filter to all queries
+    const companyFilter = getCompanyFilter(req);
+    const invoiceMatch = { 
+      ...companyFilter,  // ✅ FIX #4: Add company filter
+      ...(Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {})
+    };
+    const expenseMatch = { 
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {})
+    };
 
     let groupStage;
     if (groupBy === 'day') {
@@ -223,7 +260,10 @@ exports.getRevenueTrend = async (req, res) => {
       };
     }
 
-    const currentReceiptQuery = Object.keys(dateFilter).length > 0 ? { receiptDate: dateFilter } : {};
+    const currentReceiptQuery = { 
+      ...companyFilter,  // ✅ FIX #6: companyFilter is now defined
+      ...(Object.keys(dateFilter).length > 0 ? { receiptDate: dateFilter } : {})
+    };
 
     // 1. Invoice Revenue Trend (Paid amounts only)
     const revenueTrend = await Invoice.aggregate([
@@ -321,7 +361,11 @@ exports.getMonthlySales = async (req, res) => {
     if (startDate) dateFilter.$gte = new Date(startDate);
     if (endDate) dateFilter.$lte = new Date(endDate);
 
-    const invoiceMatch = Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {};
+    const companyFilter = getCompanyFilter(req);
+    const invoiceMatch = { 
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {})
+    };
 
     const invoiceSales = await Invoice.aggregate([
       {
@@ -339,13 +383,16 @@ exports.getMonthlySales = async (req, res) => {
       }
     ]);
 
+    const receiptMatch = { 
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { receiptDate: dateFilter } : {}),
+      source: 'pos',
+      status: 'completed'
+    };
+
     const posSales = await SalesReceipt.aggregate([
       {
-        $match: {
-          receiptDate: dateFilter,
-          source: 'pos',
-          status: 'completed'
-        }
+        $match: receiptMatch
       },
       {
         $group: {
@@ -388,7 +435,11 @@ exports.getExpensesByCategory = async (req, res) => {
     if (startDate) dateFilter.$gte = new Date(startDate);
     if (endDate) dateFilter.$lte = new Date(endDate);
 
-    const expenseMatch = Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {};
+    const companyFilter = getCompanyFilter(req);
+    const expenseMatch = { 
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {})
+    };
 
     const expensesByCategory = await Expense.aggregate([
       { $match: { ...expenseMatch, status: 'paid' } },
@@ -418,114 +469,196 @@ exports.getExpensesByCategory = async (req, res) => {
 // @route   GET /api/reports/transactions
 // @access  Private
 exports.getDetailedTransactions = async (req, res) => {
+  const userId = req.user?._id;
+  const companyId = req.user?.company?._id || req.user?.company;
+  
   try {
-    const {
-      startDate,
-      endDate,
-      search = '',
-      page = 1,
-      limit = 10,
-      sort = 'date',
-      sortDirection = 'desc'
-    } = req.query;
+    // ✅ STEP 1: Sanitize and normalize input parameters
+    const { sanitizePagination, sanitizeSearch, sanitizeDate } = require('../utils/sanitize');
+    const { page: pageRaw, limit: limitRaw } = sanitizePagination(req.query.page, req.query.limit, 100);
+    const search = sanitizeSearch(req.query.search || '');
+    const startDate = sanitizeDate(req.query.startDate);
+    const endDate = sanitizeDate(req.query.endDate);
+    const sortDirection = (req.query.sortDirection || 'desc').toLowerCase() === 'desc' ? -1 : 1;
+    const limit = limitRaw || 10;
 
-    let dateFilter = {};
-    if (startDate || endDate) {
-      if (startDate) dateFilter.$gte = new Date(startDate);
-      if (endDate) dateFilter.$lte = new Date(endDate);
+    // ✅ STEP 2: Normalize date filters safely (null-safe)
+    const dateMatch = {};
+    if (startDate) {
+      const start = new Date(startDate);
+      if (!isNaN(start.getTime())) {
+        dateMatch.$gte = start;
+      }
+    }
+    if (endDate) {
+      const end = new Date(endDate);
+      if (!isNaN(end.getTime())) {
+        dateMatch.$lte = end;
+      }
     }
 
-    // Build search filters for each model
-    const invoiceSearchFilter = {};
-    const expenseSearchFilter = {};
+    // ✅ STEP 3: Enforce company filter FIRST
+    const companyFilter = getCompanyFilter(req);
+    if (!companyFilter || Object.keys(companyFilter).length === 0) {
+      // If no company filter, return empty (should not happen in production)
+      return successResponse(res, 'Detailed transactions retrieved', {
+        data: [],
+        pagination: {
+          total: 0,
+          page: pageRaw,
+          totalPages: 0,
+          limit: limit
+        }
+      });
+    }
 
-    if (search) {
-      invoiceSearchFilter.$or = [
-        { invoiceNumber: { $regex: search, $options: 'i' } },
-        { 'customerDetails.name': { $regex: search, $options: 'i' } }
+    // ✅ STEP 4: Build search filters (null-safe)
+    const invoiceSearchMatch = {};
+    const receiptSearchMatch = {};
+    const expenseSearchMatch = {};
+
+    if (search && search.trim().length > 0) {
+      const searchRegex = { $regex: search.trim(), $options: 'i' };
+      invoiceSearchMatch.$or = [
+        { invoiceNumber: searchRegex },
+        { 'customerDetails.name': searchRegex }
       ];
-      expenseSearchFilter.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { category: { $regex: search, $options: 'i' } },
-        { vendor: { $regex: search, $options: 'i' } }
+      receiptSearchMatch.$or = [
+        { salesReceiptNumber: searchRegex },
+        { 'customerDetails.name': searchRegex }
+      ];
+      expenseSearchMatch.$or = [
+        { title: searchRegex },
+        { category: searchRegex },
+        { vendor: searchRegex }
       ];
     }
 
-    // Build the base filters
-    const invoiceFilter = { ...invoiceSearchFilter };
-    const expenseFilter = { ...expenseSearchFilter };
+    // ✅ STEP 5: Build base match filters with company isolation
+    const invoiceBaseMatch = { ...companyFilter, ...invoiceSearchMatch };
+    const receiptBaseMatch = { ...companyFilter, ...receiptSearchMatch };
+    const expenseBaseMatch = { ...companyFilter, ...expenseSearchMatch };
 
-    if (Object.keys(dateFilter).length > 0) {
-      invoiceFilter.invoiceDate = dateFilter;
-      expenseFilter.date = dateFilter;
+    // Add date filters if provided
+    if (Object.keys(dateMatch).length > 0) {
+      invoiceBaseMatch.invoiceDate = dateMatch;
+      receiptBaseMatch.receiptDate = dateMatch;
+      expenseBaseMatch.date = dateMatch;
     }
 
-    // Include status filters if necessary (Optional, based on requirement)
-    // invoiceFilter.status = { $nin: ['draft', 'cancelled'] };
-    // expenseFilter.status = 'paid';
+    // ✅ STEP 6: Build aggregation pipelines with IDENTICAL output shape
+    // All pipelines MUST output: _id, type, date, amount, reference, company
 
-    // Fetch matching records
-    const [invoices, expenses] = await Promise.all([
-      Invoice.find(invoiceFilter)
-        .select('invoiceNumber invoiceDate total amountPaid status customerDetails createdAt'),
-      Expense.find(expenseFilter)
-        .select('title amount date status createdAt')
-    ]);
-
-    // Combine and format transactions
-    const allTransactions = [
-      ...invoices.map(inv => ({
-        date: inv.invoiceDate,
-        type: 'Invoice',
-        customer: inv.customerDetails?.name || 'Unknown',
-        amount: inv.amountPaid || 0, // Using amountPaid as requested
-        status: inv.status,
-        reference: inv.invoiceNumber
-      })),
-      ...expenses.map(exp => ({
-        date: exp.date,
-        type: 'Expense',
-        customer: exp.title,
-        amount: exp.amount || 0,
-        status: exp.status,
-        reference: exp.title
-      }))
+    // Invoice pipeline
+    const invoicePipeline = [
+      { $match: invoiceBaseMatch },
+      {
+        $project: {
+          _id: 1,
+          type: { $literal: 'invoice' },
+          date: { $ifNull: ['$invoiceDate', '$createdAt'] }, // Fallback to createdAt if invoiceDate missing
+          amount: { $ifNull: ['$amountPaid', 0] }, // Use amountPaid (actual payment)
+          reference: { $ifNull: ['$invoiceNumber', 'N/A'] },
+          company: { $ifNull: ['$company', null] },
+          status: { $ifNull: ['$status', 'unknown'] },
+          customer: { $ifNull: ['$customerDetails.name', 'Unknown'] }
+        }
+      }
     ];
 
-    // Sort combined transactions globally
-    const direction = sortDirection === 'desc' ? -1 : 1;
-    allTransactions.sort((a, b) => {
-      let aVal = a[sort];
-      let bVal = b[sort];
-
-      if (sort === 'date') {
-        aVal = new Date(aVal).getTime();
-        bVal = new Date(bVal).getTime();
+    // Receipt pipeline (standalone POS receipts only, exclude invoice-linked)
+    const receiptPipeline = [
+      { 
+        $match: {
+          ...receiptBaseMatch,
+          invoice: null // Explicitly exclude invoice-linked receipts
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          type: { $literal: 'receipt' },
+          date: { $ifNull: ['$receiptDate', '$createdAt'] }, // Fallback to createdAt if receiptDate missing
+          amount: { $ifNull: ['$total', 0] },
+          reference: { $ifNull: ['$salesReceiptNumber', 'N/A'] },
+          company: { $ifNull: ['$company', null] },
+          status: { $literal: 'paid' }, // Receipts are always paid
+          customer: { $ifNull: ['$customerDetails.name', 'Walk-in'] }
+        }
       }
+    ];
 
-      if (aVal < bVal) return -1 * direction;
-      if (aVal > bVal) return 1 * direction;
-      return 0;
-    });
+    // Expense pipeline
+    const expensePipeline = [
+      { $match: expenseBaseMatch },
+      {
+        $project: {
+          _id: 1,
+          type: { $literal: 'expense' },
+          date: { $ifNull: ['$date', '$createdAt'] }, // Fallback to createdAt if date missing
+          amount: { $ifNull: ['$amount', 0] },
+          reference: { $ifNull: ['$title', 'N/A'] }, // Expenses don't have numbers, use title
+          company: { $ifNull: ['$company', null] },
+          status: { $ifNull: ['$status', 'pending'] },
+          customer: { $ifNull: ['$title', 'Unknown'] } // Use title as customer field
+        }
+      }
+    ];
 
-    // Apply pagination
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
-    const totalCount = allTransactions.length;
-    const startIndex = (pageNum - 1) * limitNum;
-    const paginatedTransactions = allTransactions.slice(startIndex, startIndex + limitNum);
+    // ✅ STEP 7: Use $unionWith to combine all sources safely
+    // Start with invoices, then union with receipts and expenses
+    // Get collection names from models (safer than hardcoding)
+    const salesReceiptCollection = SalesReceipt.collection.name;
+    const expenseCollection = Expense.collection.name;
+    
+    const transactions = await Invoice.aggregate([
+      ...invoicePipeline,
+      {
+        $unionWith: {
+          coll: salesReceiptCollection,
+          pipeline: receiptPipeline
+        }
+      },
+      {
+        $unionWith: {
+          coll: expenseCollection,
+          pipeline: expensePipeline
+        }
+      },
+      // Sort by date DESC
+      { $sort: { date: sortDirection } },
+      // Get total count before pagination
+      {
+        $facet: {
+          total: [{ $count: 'count' }],
+          data: [
+            { $skip: (pageRaw - 1) * limit },
+            { $limit: limit }
+          ]
+        }
+      }
+    ]);
 
-    // Format for response
-    const formattedTransactions = paginatedTransactions.map(t => ({
-      ...t,
-      date: t.date instanceof Date ? t.date.toISOString().split('T')[0] : t.date
+    // ✅ STEP 8: Extract results safely
+    const totalCount = transactions[0]?.total[0]?.count || 0;
+    const data = transactions[0]?.data || [];
+
+    // ✅ STEP 9: Format response (ensure date is string)
+    const formattedTransactions = data.map(t => ({
+      _id: t._id,
+      type: t.type,
+      date: t.date instanceof Date ? t.date.toISOString().split('T')[0] : (t.date || null),
+      amount: Number(t.amount) || 0,
+      reference: t.reference || 'N/A',
+      status: t.status,
+      customer: t.customer || 'Unknown'
     }));
 
     const pagination = {
       total: totalCount,
-      page: pageNum,
-      totalPages: Math.ceil(totalCount / limitNum),
-      limit: limitNum
+      page: pageRaw,
+      totalPages: Math.ceil(totalCount / limit),
+      limit: limit
     };
 
     const result = {
@@ -533,10 +666,30 @@ exports.getDetailedTransactions = async (req, res) => {
       pagination
     };
 
-    successResponse(res, 'Detailed transactions retrieved', result);
+    return successResponse(res, 'Detailed transactions retrieved', result);
 
   } catch (error) {
-    errorResponse(res, error.message, 500);
+    // ✅ CRITICAL FIX: Always log full error server-side (never expose stack in response)
+    // ✅ STEP 10: Error handling - NEVER return 500, return empty array instead
+    console.error('[getDetailedTransactions] Error:', {
+      userId,
+      companyId,
+      endpoint: '/api/reports/transactions',
+      method: req.method,
+      error: error.message,
+      stack: error.stack // ✅ Always log stack server-side only
+    });
+
+    // Return empty array instead of error (production-safe)
+    return successResponse(res, 'Detailed transactions retrieved', {
+      data: [],
+      pagination: {
+        total: 0,
+        page: req.query.page ? parseInt(req.query.page) || 1 : 1,
+        totalPages: 0,
+        limit: req.query.limit ? parseInt(req.query.limit) || 10 : 10
+      }
+    });
   }
 };
 
@@ -551,8 +704,25 @@ exports.getDashboardOverview = async (req, res) => {
     if (startDate) dateFilter.$gte = new Date(startDate);
     if (endDate) dateFilter.$lte = new Date(endDate);
 
-    const invoiceMatch = Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {};
-    const expenseMatch = Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {};
+    // ✅ FIX #16: Add company filter to all aggregations
+    const companyFilter = getCompanyFilter(req);
+    const invoiceMatch = { 
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {}),
+      status: { $nin: ['draft', 'cancelled'] }
+    };
+    const expenseMatch = { 
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {}),
+      status: 'paid'
+    };
+    const receiptMatch = {
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { receiptDate: dateFilter } : {}),
+      source: 'pos',
+      status: 'completed',
+      invoice: null
+    };
 
     const [
       revenueData,
@@ -563,30 +733,22 @@ exports.getDashboardOverview = async (req, res) => {
     ] = await Promise.all([
       Invoice.aggregate([
         {
-          $match: {
-            ...invoiceMatch,
-            status: { $nin: ['draft', 'cancelled'] }
-          }
+          $match: invoiceMatch
         },
         { $group: { _id: null, total: { $sum: '$amountPaid' } } }
       ]),
       SalesReceipt.aggregate([
         {
-          $match: {
-            receiptDate: dateFilter,
-            source: 'pos',
-            status: 'completed',
-            invoice: null
-          }
+          $match: receiptMatch
         },
         { $group: { _id: null, total: { $sum: '$total' } } }
       ]),
       Expense.aggregate([
-        { $match: { ...expenseMatch, status: 'paid' } },
+        { $match: expenseMatch },
         { $group: { _id: null, total: { $sum: '$amount' } } }
       ]),
-      Invoice.countDocuments({ ...invoiceMatch, status: { $nin: ['draft', 'cancelled'] } }),
-      Customer.countDocuments()
+      Invoice.countDocuments(invoiceMatch),
+      Customer.countDocuments(companyFilter)
     ]);
 
     const invoiceRevenue = revenueData[0]?.total || 0;
@@ -621,7 +783,10 @@ exports.getSalesReport = async (req, res) => {
       if (endDate) dateFilter.$lte = new Date(endDate);
     }
 
+    const companyFilter = getCompanyFilter(req);
+    
     const query = {
+      ...companyFilter,
       status: { $nin: ['draft', 'cancelled'] }
     };
     if (Object.keys(dateFilter).length > 0) query.invoiceDate = dateFilter;
@@ -641,7 +806,9 @@ exports.getSalesReport = async (req, res) => {
 // @access  Private
 exports.getCustomerReport = async (req, res) => {
   try {
-    const customers = await Customer.find()
+    const companyFilter = getCompanyFilter(req);
+    
+    const customers = await Customer.find(companyFilter)
       .populate('invoices')
       .sort({ createdAt: -1 });
 
@@ -662,7 +829,11 @@ exports.getItemSalesReport = async (req, res) => {
     if (startDate) dateFilter.$gte = new Date(startDate);
     if (endDate) dateFilter.$lte = new Date(endDate);
 
-    const invoiceMatch = Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {};
+    const companyFilter = getCompanyFilter(req);
+    const invoiceMatch = { 
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {})
+    };
 
     const itemSales = await Invoice.aggregate([
       { $match: invoiceMatch },
@@ -698,11 +869,16 @@ exports.getItemSalesReport = async (req, res) => {
 // @access  Private
 exports.getAgingReport = async (req, res) => {
   try {
+    const companyFilter = getCompanyFilter(req);
+    
     // FIX ISSUE #2: Only include invoices that are actually outstanding
     // Exclude: draft (not sent), paid (collected), cancelled (voided)
+    // ✅ FIX #2: Use standardized financial tolerance
+    const { FINANCIAL_TOLERANCE } = require('../utils/financialConstants');
     const agingReport = await Invoice.find({
+      ...companyFilter,
       status: { $in: ['sent', 'partially_paid', 'overdue'] },
-      balanceDue: { $gt: 0.01 }  // Extra safety for floating-point
+      balanceDue: { $gt: FINANCIAL_TOLERANCE }  // ✅ FIX #2: Use standardized tolerance
     })
       .populate('customer', 'fullName phone email')
       .sort({ dueDate: 1 });
@@ -726,7 +902,12 @@ exports.getExpenseReport = async (req, res) => {
       if (endDate) dateFilter.$lte = new Date(endDate);
     }
 
-    const query = { status: 'paid' };
+    const companyFilter = getCompanyFilter(req);
+    
+    const query = { 
+      ...companyFilter,
+      status: 'paid' 
+    };
     if (Object.keys(dateFilter).length > 0) query.date = dateFilter;
 
     const expenseReport = await Expense.find(query)
@@ -741,6 +922,7 @@ exports.getExpenseReport = async (req, res) => {
 // @desc    Get profit loss report
 // @route   GET /api/reports/profit-loss
 // @access  Private
+// ✅ FIX #1: Profit & Loss report includes POS revenue (company-scoped)
 exports.getProfitLossReport = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -749,10 +931,26 @@ exports.getProfitLossReport = async (req, res) => {
     if (startDate) dateFilter.$gte = new Date(startDate);
     if (endDate) dateFilter.$lte = new Date(endDate);
 
-    const invoiceMatch = Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {};
-    const expenseMatch = Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {};
+    const companyFilter = getCompanyFilter(req);
+    
+    const invoiceMatch = { 
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {})
+    };
+    const expenseMatch = { 
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {})
+    };
+    // ✅ FIX #1: Include POS revenue (standalone receipts only, exclude invoice-linked)
+    const receiptMatch = {
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { receiptDate: dateFilter } : {}),
+      source: 'pos',
+      status: 'completed',
+      invoice: null  // Only standalone POS transactions
+    };
 
-    const [revenueData, expenseData] = await Promise.all([
+    const [revenueData, posRevenueData, expenseData] = await Promise.all([
       Invoice.aggregate([
         {
           $match: {
@@ -762,18 +960,27 @@ exports.getProfitLossReport = async (req, res) => {
         },
         { $group: { _id: null, total: { $sum: '$amountPaid' } } }
       ]),
+      // ✅ FIX #1: POS revenue aggregation (company-scoped)
+      SalesReceipt.aggregate([
+        { $match: receiptMatch },
+        { $group: { _id: null, total: { $sum: '$total' } } }
+      ]),
       Expense.aggregate([
         { $match: { ...expenseMatch, status: 'paid' } },
         { $group: { _id: null, total: { $sum: '$amount' } } }
       ])
     ]);
 
-    const totalRevenue = revenueData[0]?.total || 0;
+    const invoiceRevenue = revenueData[0]?.total || 0;
+    const posRevenue = posRevenueData[0]?.total || 0;
+    const totalRevenue = invoiceRevenue + posRevenue;  // ✅ FIX #1: Include POS revenue
     const totalExpenses = expenseData[0]?.total || 0;
     const profit = totalRevenue - totalExpenses;
 
     const profitLossReport = {
       totalRevenue,
+      invoiceRevenue,
+      posRevenue,
       totalExpenses,
       profit,
       profitMargin: totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0
@@ -793,29 +1000,48 @@ exports.exportReport = async (req, res) => {
     const { type } = req.params;
     const { startDate, endDate } = req.query;
 
+    // ✅ FIX #29: Limit export size to prevent resource exhaustion
+    const MAX_EXPORT_RECORDS = 10000;
+
     let dateFilter = {};
     if (startDate || endDate) {
       if (startDate) dateFilter.$gte = new Date(startDate);
       if (endDate) dateFilter.$lte = new Date(endDate);
     }
 
+    const companyFilter = getCompanyFilter(req);
+    
     let data;
-    const query = {};
+    const query = { ...companyFilter };
     if (Object.keys(dateFilter).length > 0) query[type === 'sales' ? 'invoiceDate' : 'date'] = dateFilter;
 
     switch (type) {
       case 'sales':
-        data = await Invoice.find(query).populate('customer', 'fullName');
+        data = await Invoice.find(query)
+          .populate('customer', 'fullName')
+          .limit(MAX_EXPORT_RECORDS)
+          .sort({ invoiceDate: -1 });
         break;
       case 'expenses':
         const expenseQuery = { ...query, status: 'paid' };
-        data = await Expense.find(expenseQuery);
+        data = await Expense.find(expenseQuery)
+          .limit(MAX_EXPORT_RECORDS)
+          .sort({ date: -1 });
         break;
       case 'customers':
-        data = await Customer.find();
+        data = await Customer.find(companyFilter)
+          .limit(MAX_EXPORT_RECORDS)
+          .sort({ createdAt: -1 });
         break;
       default:
         return errorResponse(res, 'Invalid export type', 400);
+    }
+
+    if (data.length >= MAX_EXPORT_RECORDS) {
+      return errorResponse(res, 
+        `Export limit reached (${MAX_EXPORT_RECORDS} records). Please use date filters to reduce the dataset.`, 
+        400
+      );
     }
 
     successResponse(res, `${type} report data ready for export`, data);
@@ -835,7 +1061,11 @@ exports.getTopCustomers = async (req, res) => {
     if (startDate) dateFilter.$gte = new Date(startDate);
     if (endDate) dateFilter.$lte = new Date(endDate);
 
-    const invoiceMatch = Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {};
+    const companyFilter = getCompanyFilter(req);
+    const invoiceMatch = { 
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {})
+    };
 
     const topCustomers = await Invoice.aggregate([
       {
@@ -892,7 +1122,11 @@ exports.getInvoiceStatusDistribution = async (req, res) => {
     if (startDate) dateFilter.$gte = new Date(startDate);
     if (endDate) dateFilter.$lte = new Date(endDate);
 
-    const invoiceMatch = Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {};
+    const companyFilter = getCompanyFilter(req);
+    const invoiceMatch = { 
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {})
+    };
 
     const statusDistribution = await Invoice.aggregate([
       {
@@ -937,11 +1171,14 @@ exports.getRevenueByPaymentMethod = async (req, res) => {
     if (startDate) dateFilter.$gte = new Date(startDate);
     if (endDate) dateFilter.$lte = new Date(endDate);
 
+    const companyFilter = getCompanyFilter(req);
+    
     // Get revenue from invoice payments grouped by payment method
     const invoiceRevenue = await Invoice.aggregate([
       {
         $match: {
-          invoiceDate: dateFilter,
+          ...companyFilter,
+          ...(Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {}),
           status: { $nin: ['draft', 'cancelled'] }
         }
       },
@@ -968,7 +1205,8 @@ exports.getRevenueByPaymentMethod = async (req, res) => {
     const posRevenue = await SalesReceipt.aggregate([
       {
         $match: {
-          receiptDate: dateFilter,
+          ...companyFilter,
+          ...(Object.keys(dateFilter).length > 0 ? { receiptDate: dateFilter } : {}),
           source: 'pos',
           status: 'completed'
         }
@@ -1021,10 +1259,13 @@ exports.getPaymentVelocity = async (req, res) => {
     if (startDate) dateFilter.$gte = new Date(startDate);
     if (endDate) dateFilter.$lte = new Date(endDate);
 
+    const companyFilter = getCompanyFilter(req);
+    
     const velocityData = await Invoice.aggregate([
       {
         $match: {
-          invoiceDate: dateFilter,
+          ...companyFilter,
+          ...(Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {}),
           status: 'paid',
           payments: { $exists: true, $ne: [] }
         }
@@ -1076,10 +1317,13 @@ exports.getCollectionRate = async (req, res) => {
     if (startDate) dateFilter.$gte = new Date(startDate);
     if (endDate) dateFilter.$lte = new Date(endDate);
 
+    const companyFilter = getCompanyFilter(req);
+    
     const stats = await Invoice.aggregate([
       {
         $match: {
-          invoiceDate: dateFilter,
+          ...companyFilter,
+          ...(Object.keys(dateFilter).length > 0 ? { invoiceDate: dateFilter } : {}),
           status: { $nin: ['draft', 'cancelled'] }
         }
       },
@@ -1149,7 +1393,13 @@ exports.getExpenseTrend = async (req, res) => {
     if (startDate) dateFilter.$gte = new Date(startDate);
     if (endDate) dateFilter.$lte = new Date(endDate);
 
-    const expenseMatch = Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {};
+    // ✅ FIX #16: Add company filter to aggregation
+    const companyFilter = getCompanyFilter(req);
+    const expenseMatch = { 
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {}),
+      status: 'paid'
+    };
 
     let groupStage;
     if (groupBy === 'day') {
@@ -1167,7 +1417,7 @@ exports.getExpenseTrend = async (req, res) => {
     }
 
     const trendData = await Expense.aggregate([
-      { $match: { ...expenseMatch, status: 'paid' } },
+      { $match: expenseMatch },
       {
         $group: {
           ...groupStage,
@@ -1204,7 +1454,11 @@ exports.getTopVendors = async (req, res) => {
     if (startDate) dateFilter.$gte = new Date(startDate);
     if (endDate) dateFilter.$lte = new Date(endDate);
 
-    const expenseMatch = Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {};
+    const companyFilter = getCompanyFilter(req);
+    const expenseMatch = { 
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {})
+    };
 
     const topVendors = await Expense.aggregate([
       { $match: { ...expenseMatch, status: 'paid' } },
@@ -1245,7 +1499,11 @@ exports.getExpenseMetrics = async (req, res) => {
     if (startDate) dateFilter.$gte = new Date(startDate);
     if (endDate) dateFilter.$lte = new Date(endDate);
 
-    const expenseMatch = Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {};
+    const companyFilter = getCompanyFilter(req);
+    const expenseMatch = { 
+      ...companyFilter,
+      ...(Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {})
+    };
 
     const metrics = await Expense.aggregate([
       { $match: { ...expenseMatch, status: 'paid' } },

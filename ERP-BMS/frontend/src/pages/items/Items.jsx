@@ -19,12 +19,17 @@ import { toast } from 'react-hot-toast'
 import ConfirmDialog from '../../components/common/ConfirmDialog'
 import ItemList from '../../components/items/ItemList'
 import { useDebounce } from '../../hooks/useDebounce'
+import { useCompanyId } from '../../hooks/useCompanyId'
+import { validateCompanyData } from '../../utils/dataValidation'
 import { itemService } from '../../services/api/itemService'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Card, CardContent } from '../../components/ui/card'
 
 const Items = () => {
+  // ✅ FIX: Get companyId for query keys
+  const companyId = useCompanyId()
+
   const location = useLocation()
   const navigate = useNavigate()
   const [searchTerm, setSearchTerm] = useState('')
@@ -45,12 +50,13 @@ const Items = () => {
   const queryClient = useQueryClient()
   const limit = 5
 
+  // ✅ FIX: Include companyId in query key
   const {
     data,
     isLoading,
     isError,
   } = useQuery(
-    ['items', debouncedSearch, typeFilter, page],
+    ['items', companyId, debouncedSearch, typeFilter, page],
     () =>
       itemService.getAll({
         search: debouncedSearch || undefined,
@@ -60,10 +66,19 @@ const Items = () => {
       }),
     {
       keepPreviousData: true,
+      enabled: !!companyId // ✅ FIX: Don't fetch if no companyId
     }
   )
 
-  const items = data?.data || []
+  const rawItems = data?.data || []
+  
+  // ✅ FIX: Validate company data before rendering
+  const { filteredRecords: items, invalidCount } = validateCompanyData(rawItems, companyId, 'company')
+  if (invalidCount > 0) {
+    console.error(`[Items] ${invalidCount} items with wrong companyId detected and filtered out`)
+    queryClient.invalidateQueries(['items', companyId])
+  }
+  
   const pagination = data?.pagination || { page: 1, pages: 1, total: 0 }
 
   useEffect(() => {
@@ -73,7 +88,7 @@ const Items = () => {
   const deleteItem = useMutation(itemService.delete, {
     onSuccess: () => {
       toast.success('Item deleted')
-      queryClient.invalidateQueries({ queryKey: ['items'] })
+      queryClient.invalidateQueries({ queryKey: ['items', companyId] })
     },
     onError: (error) => {
       toast.error(error?.response?.data?.message || 'Failed to delete item')
@@ -102,7 +117,7 @@ const Items = () => {
 
   const handleRefresh = async () => {
     await queryClient.invalidateQueries({
-      queryKey: ['items'],
+      queryKey: ['items', companyId],
       refetchActive: true,
       refetchInactive: true,
     })

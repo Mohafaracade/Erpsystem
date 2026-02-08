@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from 'react-query'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
+import ErrorBoundary from './components/common/ErrorBoundary'
 import PrivateRoute from './components/routing/PrivateRoute'
 
 // Pages
@@ -30,9 +31,15 @@ import Reports from './pages/reports/Reports'
 import Users from './pages/users/Users'
 import Settings from './pages/Settings'
 import NotFound from './pages/NotFound'
+import Companies from './pages/companies/Companies'
+import CreateCompany from './pages/companies/CreateCompany'
+import EditCompany from './pages/companies/EditCompany'
+import CompanyUsers from './pages/companies/CompanyUsers'
+import CreateCompanyUser from './pages/companies/CreateCompanyUser'
 
 // Layout
 import Layout from './components/layout/Layout'
+import AdminRoute from './components/routing/AdminRoute'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -46,16 +53,17 @@ const queryClient = new QueryClient({
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <AuthProvider>
-          <Router
-            future={{
-              v7_startTransition: true,
-              v7_relativeSplatPath: true,
-            }}
-          >
-            <Routes>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <AuthProvider>
+            <Router
+              future={{
+                v7_startTransition: true,
+                v7_relativeSplatPath: true,
+              }}
+            >
+              <Routes>
               {/* Public Routes */}
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
@@ -103,7 +111,56 @@ function App() {
                 <Route path="reports" element={<Reports />} />
 
                 {/* User Routes */}
-                <Route path="users" element={<Users />} />
+                <Route 
+                  path="users" 
+                  element={
+                    <AdminRoute>
+                      <Users />
+                    </AdminRoute>
+                  } 
+                />
+
+                {/* Company Routes (Super Admin Only) */}
+                <Route 
+                  path="companies" 
+                  element={
+                    <AdminRoute requireSuperAdmin={true}>
+                      <Companies />
+                    </AdminRoute>
+                  } 
+                />
+                <Route 
+                  path="companies/create" 
+                  element={
+                    <AdminRoute requireSuperAdmin={true}>
+                      <CreateCompany />
+                    </AdminRoute>
+                  } 
+                />
+                <Route 
+                  path="companies/:id/edit" 
+                  element={
+                    <AdminRoute requireSuperAdmin={true}>
+                      <EditCompany />
+                    </AdminRoute>
+                  } 
+                />
+                <Route 
+                  path="companies/:id/users" 
+                  element={
+                    <AdminRoute requireSuperAdmin={true}>
+                      <CompanyUsers />
+                    </AdminRoute>
+                  } 
+                />
+                <Route 
+                  path="companies/:id/users/create" 
+                  element={
+                    <AdminRoute requireSuperAdmin={true}>
+                      <CreateCompanyUser />
+                    </AdminRoute>
+                  } 
+                />
 
                 {/* Settings */}
                 <Route path="settings" element={<Settings />} />
@@ -112,11 +169,12 @@ function App() {
               {/* 404 */}
               <Route path="*" element={<NotFound />} />
             </Routes>
-          </Router>
-          <Toaster position="top-right" />
-        </AuthProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+              </Router>
+              <Toaster position="top-right" />
+            </AuthProvider>
+          </ThemeProvider>
+        </QueryClientProvider>
+      </ErrorBoundary>
   )
 }
 

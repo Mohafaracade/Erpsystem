@@ -2,47 +2,40 @@ const express = require('express');
 const router = express.Router();
 const reportController = require('../controllers/reportController');
 const { protect, authorize } = require('../middleware/auth');
+const { exportLimiter } = require('../middleware/rateLimiter');
 
-// All routes protected and restricted to Admin/Accountant only
-router.use(protect, authorize('admin', 'accountant'));
+// All routes protected
+router.use(protect);
 
-// Dashboard overview
-router.get('/dashboard', reportController.getDashboardOverview);
+// ✅ FIX #6: Restrict accountant access to financial reports only
+// Accountant can only access financial reports, not system reports
+// Admin, company_admin, and super_admin have full access
 
-// Comprehensive reports (single endpoint for all data)
-router.get('/comprehensive', reportController.getComprehensiveReports);
+// ✅ FIX #6: Financial reports (accessible to accountant)
+router.get('/dashboard', authorize('super_admin', 'company_admin', 'admin', 'accountant'), reportController.getDashboardOverview);
+router.get('/revenue-trend', authorize('super_admin', 'company_admin', 'admin', 'accountant'), reportController.getRevenueTrend);
+router.get('/monthly-sales', authorize('super_admin', 'company_admin', 'admin', 'accountant'), reportController.getMonthlySales);
+router.get('/expenses-by-category', authorize('super_admin', 'company_admin', 'admin', 'accountant'), reportController.getExpensesByCategory);
+router.get('/revenue-by-payment-method', authorize('super_admin', 'company_admin', 'admin', 'accountant'), reportController.getRevenueByPaymentMethod);
+router.get('/payment-velocity', authorize('super_admin', 'company_admin', 'admin', 'accountant'), reportController.getPaymentVelocity);
+router.get('/collection-rate', authorize('super_admin', 'company_admin', 'admin', 'accountant'), reportController.getCollectionRate);
+router.get('/expense-trend', authorize('super_admin', 'company_admin', 'admin', 'accountant'), reportController.getExpenseTrend);
+router.get('/top-vendors', authorize('super_admin', 'company_admin', 'admin', 'accountant'), reportController.getTopVendors);
+router.get('/expense-metrics', authorize('super_admin', 'company_admin', 'admin', 'accountant'), reportController.getExpenseMetrics);
+router.get('/sales', authorize('super_admin', 'company_admin', 'admin', 'accountant'), reportController.getSalesReport);
+router.get('/expenses', authorize('super_admin', 'company_admin', 'admin', 'accountant'), reportController.getExpenseReport);
+router.get('/profit-loss', authorize('super_admin', 'company_admin', 'admin', 'accountant'), reportController.getProfitLossReport);
 
-// Chart data endpoints
-router.get('/revenue-trend', reportController.getRevenueTrend);
-router.get('/monthly-sales', reportController.getMonthlySales);
-router.get('/expenses-by-category', reportController.getExpensesByCategory);
-router.get('/top-customers', reportController.getTopCustomers);
-router.get('/invoice-status', reportController.getInvoiceStatusDistribution);
+// ✅ FIX #6: System reports (admin only, no accountant access)
+router.get('/comprehensive', authorize('super_admin', 'company_admin', 'admin'), reportController.getComprehensiveReports);
+router.get('/top-customers', authorize('super_admin', 'company_admin', 'admin'), reportController.getTopCustomers);
+router.get('/invoice-status', authorize('super_admin', 'company_admin', 'admin'), reportController.getInvoiceStatusDistribution);
+router.get('/transactions', authorize('super_admin', 'company_admin', 'admin'), reportController.getDetailedTransactions);
+router.get('/customers', authorize('super_admin', 'company_admin', 'admin'), reportController.getCustomerReport);
+router.get('/items', authorize('super_admin', 'company_admin', 'admin'), reportController.getItemSalesReport);
+router.get('/aging', authorize('super_admin', 'company_admin', 'admin'), reportController.getAgingReport);
 
-// Revenue analysis endpoints
-router.get('/revenue-by-payment-method', reportController.getRevenueByPaymentMethod);
-router.get('/payment-velocity', reportController.getPaymentVelocity);
-router.get('/collection-rate', reportController.getCollectionRate);
-
-// Expense analysis endpoints
-router.get('/expense-trend', reportController.getExpenseTrend);
-router.get('/top-vendors', reportController.getTopVendors);
-router.get('/expense-metrics', reportController.getExpenseMetrics);
-
-// Detailed transactions with pagination
-router.get('/transactions', reportController.getDetailedTransactions);
-
-// Sales reports
-router.get('/sales', reportController.getSalesReport);
-router.get('/customers', reportController.getCustomerReport);
-router.get('/items', reportController.getItemSalesReport);
-router.get('/aging', reportController.getAgingReport);
-
-// Expense reports
-router.get('/expenses', reportController.getExpenseReport);
-router.get('/profit-loss', reportController.getProfitLossReport);
-
-// Export reports
-router.get('/export/:type', reportController.exportReport);
+// ✅ FIX #29: Export reports with rate limiting
+router.get('/export/:type', exportLimiter, authorize('super_admin', 'company_admin', 'admin', 'accountant'), reportController.exportReport);
 
 module.exports = router;
