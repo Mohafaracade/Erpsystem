@@ -19,7 +19,6 @@ A comprehensive Invoice Management System built with MERN stack (MongoDB, Expres
 
 ### 3. Item Management
 - Product/Service catalog
-- Inventory tracking
 - Price management
 - Tax configuration
 
@@ -45,7 +44,6 @@ A comprehensive Invoice Management System built with MERN stack (MongoDB, Expres
 - Financial reports
 - Tax reports
 - Customer statements
-- Inventory reports
 - Export to PDF/Excel
 
 ## Technology Stack

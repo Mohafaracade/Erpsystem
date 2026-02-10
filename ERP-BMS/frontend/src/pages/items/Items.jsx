@@ -188,7 +188,7 @@ const Items = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-foreground tracking-tight">Items</h1>
-          <p className="text-sm text-muted-foreground mt-1">Manage your products and services inventory</p>
+          <p className="text-sm text-muted-foreground mt-1">Manage your products and services</p>
         </div>
 
         <div className="flex items-center gap-2">

@@ -22,22 +22,6 @@ const itemSchema = new mongoose.Schema({
     required: [true, 'Selling price is required'],
     min: [0, 'Selling price cannot be negative']
   },
-  // ✅ CRITICAL FIX: Inventory/Stock Management
-  stockQuantity: {
-    type: Number,
-    default: 0,
-    min: [0, 'Stock quantity cannot be negative'],
-    required: function() { return this.type === 'Goods'; } // Required for Goods, optional for Services
-  },
-  lowStockThreshold: {
-    type: Number,
-    default: 10,
-    min: [0, 'Low stock threshold cannot be negative']
-  },
-  trackInventory: {
-    type: Boolean,
-    default: true // Track inventory by default for Goods
-  },
   isActive: {
     type: Boolean,
     default: true

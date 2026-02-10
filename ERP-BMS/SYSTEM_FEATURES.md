@@ -187,13 +187,6 @@
   - Category
   - Tags
 
-- ✅ **Inventory Management** (Goods Items)
-  - Stock quantity tracking
-  - Low stock threshold
-  - Track inventory toggle
-  - Stock level alerts
-  - Automatic stock deduction on invoice/receipt
-  - Stock validation before sale
 
 - ✅ **Item Search & Filtering**
   - Search by name
@@ -206,7 +199,6 @@
 - ✅ **Item Analytics**
   - Total items count
   - Items by type
-  - Low stock items
   - Best selling items
   - Item sales statistics
   - Item performance metrics
@@ -214,7 +206,6 @@
 - ✅ **Export Features**
   - Export to CSV
   - Export item list
-  - Export with inventory data
 
 ---
 
@@ -1144,15 +1135,9 @@ A comprehensive Multi-Tenant SaaS ERP system for managing invoices, customers, i
   - Cost price
   - Tax rate
   - Unit of measurement
-- ✅ Inventory management:
-  - Stock quantity tracking
-  - Low stock threshold alerts
-  - Inventory tracking toggle
-  - Stock updates on sales
 - ✅ Item statistics:
   - Total sales
   - Revenue per item
-  - Stock levels
   - Best-selling items
 
 ---
@@ -1382,7 +1367,6 @@ A comprehensive Multi-Tenant SaaS ERP system for managing invoices, customers, i
   - Item sales report
   - Best-selling items
   - Revenue by item
-  - Inventory levels
 
 - ✅ **Transaction Reports**
   - Detailed transactions (invoices, receipts, expenses)
@@ -1676,12 +1660,6 @@ A comprehensive Multi-Tenant SaaS ERP system for managing invoices, customers, i
 - ✅ Payment tracking
 - ✅ Profit/Loss calculations
 
-### **Inventory Management:**
-- ✅ Stock quantity tracking
-- ✅ Low stock alerts
-- ✅ Stock updates on sales
-- ✅ Inventory validation
-- ✅ Stock availability checks
 
 ### **Number Generation:**
 - ✅ Auto-generated invoice numbers
@@ -1815,7 +1793,6 @@ A comprehensive Multi-Tenant SaaS ERP system for managing invoices, customers, i
 - ✅ Role-based access control
 - ✅ Real-time analytics
 - ✅ Financial reporting
-- ✅ Inventory management
 - ✅ Payment processing
 - ✅ Document generation
 - ✅ Data export/import

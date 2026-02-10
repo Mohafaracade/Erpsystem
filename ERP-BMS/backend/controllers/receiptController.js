@@ -191,17 +191,7 @@ exports.createReceipt = async (req, res) => {
         return errorResponse(res, `Item ${item.item} not found or access denied`, 404);
       }
 
-      // ✅ CRITICAL FIX: Stock validation for Goods items
       const quantity = Number(item.quantity);
-      if (itemDoc.type === 'Goods' && itemDoc.trackInventory !== false) {
-        const currentStock = Number(itemDoc.stockQuantity) || 0;
-        if (currentStock < quantity) {
-          return errorResponse(res, 
-            `Insufficient stock for "${itemDoc.name}". Available: ${currentStock}, Requested: ${quantity}`, 
-            400
-          );
-        }
-      }
 
       // Build item object matching receiptItemSchema exactly
       const itemDetails = {
@@ -225,7 +215,7 @@ exports.createReceipt = async (req, res) => {
     // Generate receipt number (company-specific)
     const salesReceiptNumber = await generateReceiptNumber(companyId);
 
-    // Create receipt first (if this fails, no stock is updated)
+    // Create receipt
     const receipt = await SalesReceipt.create({
       customer: customer || undefined, // Optional for walk-in sales
       customerDetails: customerDoc ? {
@@ -251,32 +241,6 @@ exports.createReceipt = async (req, res) => {
       company: companyId,
       createdBy: req.user.id
     });
-
-    // ✅ CRITICAL FIX: Update stock quantities atomically AFTER receipt creation
-    // Only update stock for Goods items with inventory tracking
-    // Use atomic findOneAndUpdate with condition to prevent overselling
-    for (const item of validatedItems) {
-      const itemDoc = itemMap.get(item.item.toString());
-      if (itemDoc && itemDoc.type === 'Goods' && itemDoc.trackInventory !== false) {
-        const result = await Item.findOneAndUpdate(
-          { 
-            _id: itemDoc._id,
-            stockQuantity: { $gte: item.quantity } // ✅ Atomic check: only update if stock is sufficient
-          },
-          { $inc: { stockQuantity: -item.quantity } },
-          { new: true }
-        );
-        
-        // If stock update failed (insufficient stock), rollback receipt
-        if (!result) {
-          await receipt.deleteOne();
-          return errorResponse(res, 
-            `Insufficient stock for "${itemDoc.name}". Stock was updated by another transaction.`, 
-            400
-          );
-        }
-      }
-    }
 
     // Create notification
     await createNotification({

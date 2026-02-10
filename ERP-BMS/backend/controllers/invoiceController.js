@@ -299,17 +299,6 @@ exports.createInvoice = async (req, res) => {
         return errorResponse(res, 'Item quantity must be greater than 0', 400);
       }
 
-      // ✅ CRITICAL FIX: Stock validation for Goods items
-      if (itemDoc.type === 'Goods' && itemDoc.trackInventory !== false) {
-        const currentStock = Number(itemDoc.stockQuantity) || 0;
-        if (currentStock < quantity) {
-          return errorResponse(res, 
-            `Insufficient stock for "${itemDoc.name}". Available: ${currentStock}, Requested: ${quantity}`, 
-            400
-          );
-        }
-      }
-
       if (rate < 0) {
         return errorResponse(res, 'Item rate cannot be negative', 400);
       }
@@ -349,7 +338,7 @@ exports.createInvoice = async (req, res) => {
     // Use company-specific numbering
     const invoiceNumber = await generateInvoiceNumber(companyId);
 
-    // Create invoice first (if this fails, no stock is updated)
+    // Create invoice
     const invoice = await Invoice.create({
       customer,
       customerDetails: {
@@ -373,32 +362,6 @@ exports.createInvoice = async (req, res) => {
       company: companyId,
       createdBy: req.user.id
     });
-
-    // ✅ CRITICAL FIX: Update stock quantities atomically AFTER invoice creation
-    // Only update stock for Goods items with inventory tracking
-    // Use atomic findOneAndUpdate with condition to prevent overselling
-    for (const item of processedItems) {
-      const itemDoc = itemMap.get(item.item.toString());
-      if (itemDoc && itemDoc.type === 'Goods' && itemDoc.trackInventory !== false) {
-        const result = await Item.findOneAndUpdate(
-          { 
-            _id: itemDoc._id,
-            stockQuantity: { $gte: item.quantity } // ✅ Atomic check: only update if stock is sufficient
-          },
-          { $inc: { stockQuantity: -item.quantity } },
-          { new: true }
-        );
-        
-        // If stock update failed (insufficient stock), rollback invoice
-        if (!result) {
-          await invoice.deleteOne();
-          return errorResponse(res, 
-            `Insufficient stock for "${itemDoc.name}". Stock was updated by another transaction.`, 
-            400
-          );
-        }
-      }
-    }
 
     // Create notification
     await createNotification({
